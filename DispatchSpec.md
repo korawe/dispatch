@@ -198,7 +198,7 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
 | Microphone recording | ✓ Works | Records in a format cloud speech-to-text services accept |
 | Mic permission after reopening | ✓ Remembered | No repeated prompts |
 | Built-in speech recognition | ✗ Failed ("aborted", nothing heard) | Don't rely on it. Use a cloud speech-to-text service for everything (§10.3) |
-| Read aloud (built-in voices) | ✓ Works with silent mode off; ✗ muted when the phone is on silent | Testing whether a "play as media" setting gets round silent mode (test 5b). If it doesn't, either ask you to unsilence or use cloud text-to-speech |
+| Read aloud (built-in voices) | ✓ Works with silent mode off; ✗ muted when the phone is on silent | Neither workaround (test 5b, A and B) gets round silent mode. Testing whether a recorded clip, as a cloud voice would deliver, plays on silent (test 5c) |
 | Hands-free conversation | ✗ Failed | Followed from the two failures above. Needs a rebuild on cloud speech-to-text, then a re-test |
 | Notifications | ✓ Works | Morning summary is feasible |
 | App icon badge | ✓ Works | |

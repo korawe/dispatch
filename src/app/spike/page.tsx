@@ -20,6 +20,7 @@ const TESTS: { id: string; title: string; options?: string[] }[] = [
   { id: "stt", title: "4. Built-in speech recognition", options: ["Accurate", "Some mistakes", "Didn't work"] },
   { id: "tts", title: "5. Read aloud" },
   { id: "tts-silent", title: "5b. Read aloud with silent mode ON", options: ["A worked", "B worked", "Both worked", "Neither"] },
+  { id: "clip-silent", title: "5c. Recorded voice clip with silent mode ON", options: ["Heard it", "No sound"] },
   { id: "handsfree", title: "6. Hands-free conversation" },
   { id: "push", title: "7. Notifications" },
   { id: "badge", title: "8. App icon badge" },
@@ -200,6 +201,7 @@ function Spike() {
       {card("stt", <SpeechRecognitionTest env={env} onInfo={(t) => note("stt", t)} />)}
       {card("tts", <ReadAloudTest env={env} onInfo={(t) => note("tts", t)} />)}
       {card("tts-silent", <ReadAloudSilentTest env={env} onInfo={(t) => note("tts-silent", t)} />)}
+      {card("clip-silent", <VoiceClipTest onInfo={(t) => note("clip-silent", t)} />)}
       {card("handsfree", <HandsFreeTest env={env} onInfo={(t) => note("handsfree", t)} />)}
       {card("push", <PushTest env={env} onInfo={(t) => note("push", t)} />)}
       {card("badge", <BadgeTest env={env} onInfo={(t) => note("badge", t)} />)}
@@ -591,6 +593,34 @@ function ReadAloudSilentTest({ env, onInfo }: { env: Env; onInfo: (t: string) =>
         <button onClick={tryB} className="btn-primary">▶ Try B</button>
       </div>
       {lines.length > 0 && <Status>{lines.map((l, i) => <span key={i} className="block">{l}</span>)}</Status>}
+    </>
+  );
+}
+
+// Plays a pre-recorded clip as ordinary media, the way a cloud voice service's audio would be played.
+function VoiceClipTest({ onInfo }: { onInfo: (t: string) => void }) {
+  const [msg, setMsg] = useState("");
+  function play() {
+    const a = new Audio("/voice-sample.wav");
+    a.onended = () => {
+      setMsg("Clip finished playing");
+      onInfo("Clip finished playing");
+    };
+    a.play()
+      .then(() => setMsg("Playing…"))
+      .catch((e) => {
+        setMsg(`Blocked: ${String(e)}`);
+        onInfo(`Blocked: ${String(e)}`);
+      });
+  }
+  return (
+    <>
+      <p>
+        Keep silent mode <b>on</b> and the volume up. Tap Play. This is how a cloud voice would sound to you. Can you hear
+        it?
+      </p>
+      <button onClick={play} className="btn-primary">▶ Play clip</button>
+      {msg && <Status>{msg}</Status>}
     </>
   );
 }
