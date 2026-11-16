@@ -190,6 +190,23 @@ Two tabs: **Open** and **Completed**.
 
 Anything beyond these limits, such as lock-screen recording or a true "Hey Siri", would need a native app (out of scope).
 
+### Phase 0 test results (iPhone, 16 Nov 2026)
+
+| Check | Result | What it means |
+|---|---|---|
+| Install to Home Screen | ✓ Works | On newer iOS, Share sits under the **⋯** button in Safari |
+| Microphone recording | ✓ Works | Records in a format cloud speech-to-text services accept |
+| Mic permission after reopening | ✓ Remembered | No repeated prompts |
+| Built-in speech recognition | ✗ Failed ("aborted", nothing heard) | Don't rely on it. Use a cloud speech-to-text service for everything (§10.3) |
+| Read aloud (built-in voices) | ✗ No sound | Possibly because the phone was on silent. Being re-tested |
+| Hands-free conversation | ✗ Failed | Followed from the two failures above. Needs a rebuild on cloud speech-to-text, then a re-test |
+| Notifications | ✓ Works | Morning summary is feasible |
+| App icon badge | ✓ Works | |
+| Copy into Outlook | ✓ Works | Copy-button hand-off is fine |
+| Keep screen awake | Not yet tested | |
+| Siri Shortcut | Not yet tested | |
+| Desktop install | Not yet tested | |
+
 ## 10. Platform and technology
 
 ### 10.1 App
@@ -209,8 +226,8 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
 - **Speech-to-text:** Claude doesn't take audio input, so transcription needs a separate step. Two options, to be compared in the Phase 0 spike:
   - (a) **Built-in browser speech recognition:** free and fast, but reliability in iPhone home-screen apps and accuracy with names are unproven.
   - (b) **A cloud speech-to-text API:** records audio and sends it to a transcription service. More consistent across phone and desktop. Usually priced per minute of audio.
-  - **Proposed:** use (b) for the main note, which favours accuracy, and test (a) for the short spoken replies in hands-free mode, which favours speed. Pick the provider once the AI policy check is done (§12).
-- **Text-to-speech** (read-back and prompts): the browser's built-in speech voices. No extra service or cost.
+  - **Decided after Phase 0 testing:** use (b) for everything, including the short spoken replies in hands-free mode, because (a) failed on your iPhone (§9). Pick the provider once the AI policy check is done (§12).
+- **Text-to-speech** (read-back and prompts): planned as the browser's built-in voices, which are free. In Phase 0 they made no sound, possibly because the phone was on silent; this is being re-tested. If the built-in voices can't play reliably, use a cloud text-to-speech service instead, whose audio plays like normal media.
 
 ### 10.4 AI drafting
 - **Model:** Claude Opus 5.5 (`claude-opus-5-5`), called through the official Anthropic TypeScript SDK from a server route.
