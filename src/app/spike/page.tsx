@@ -43,7 +43,6 @@ interface Recognition {
   onerror: ((e: { error: string }) => void) | null;
   onend: (() => void) | null;
   onstart?: (() => void) | null;
-  onspeechstart?: (() => void) | null;
 }
 type RecognitionCtor = new () => Recognition;
 
@@ -338,36 +337,61 @@ function MicTest({ onInfo }: { onInfo: (t: string) => void }) {
   );
 }
 
-function listenOnce(
-  timeoutMs: number,
-  onPartial?: (t: string) => void,
-  onEvent?: (e: string) => void
-): Promise<{ text: string; error?: string }> {
+type ListenOptions = {
+  onPartial?: (t: string) => void;
+  onEvent?: (e: string) => void;
+  /** Stop listening after this long with no new words (the iPhone doesn't stop by itself). */
+  silenceMs?: number;
+};
+
+/**
+ * Listens for one reply. `timeoutMs` is how long to wait for the first words; with
+ * `silenceMs` set, it then stops once the words stop changing for that long.
+ */
+function listenOnce(timeoutMs: number, { onPartial, onEvent, silenceMs }: ListenOptions = {}): Promise<{ text: string; error?: string }> {
   return new Promise((resolve) => {
     const Ctor = getRecognitionCtor();
     if (!Ctor) return resolve({ text: "", error: "not supported" });
     const rec = new Ctor();
     rec.lang = "en-GB";
     rec.continuous = false;
-    rec.interimResults = !!onPartial;
+    // Pause detection needs the words as they come in.
+    rec.interimResults = !!onPartial || !!silenceMs;
     let text = "";
     let error: string | undefined;
     let settled = false;
+    let stopping = false;
     const finish = () => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       resolve({ text: text.trim(), error });
     };
-    if (onEvent) {
-      rec.onstart = () => onEvent("mic started");
-      rec.onspeechstart = () => onEvent("mic heard speech");
-    }
+    const stopMic = (why?: string) => {
+      if (stopping) return;
+      stopping = true;
+      if (why) onEvent?.(why);
+      try {
+        rec.stop();
+      } catch {
+        /* already stopped */
+      }
+      // Safety net in case the browser never fires "end".
+      setTimeout(finish, 1500);
+    };
+    if (onEvent) rec.onstart = () => onEvent("mic started");
     rec.onresult = (e) => {
-      text = Array.from(e.results)
+      const next = Array.from(e.results)
         .map((r) => r[0]?.transcript ?? "")
         .join(" ");
+      if (next === text) return;
+      if (!text.trim() && next.trim()) onEvent?.(`mic got first words: "${next.trim()}"`);
+      text = next;
       onPartial?.(text);
+      if (silenceMs) {
+        clearTimeout(timer);
+        timer = setTimeout(() => stopMic(`pause detected (${silenceMs / 1000}s), stopping mic`), silenceMs);
+      }
     };
     rec.onerror = (e) => {
       error = e.error;
@@ -377,14 +401,7 @@ function listenOnce(
       onEvent?.("mic stopped");
       finish();
     };
-    const timer = setTimeout(() => {
-      try {
-        rec.stop();
-      } catch {
-        /* already stopped */
-      }
-      setTimeout(finish, 1500);
-    }, timeoutMs);
+    let timer = setTimeout(() => stopMic(silenceMs ? `no words after ${timeoutMs / 1000}s, stopping mic` : undefined), timeoutMs);
     try {
       rec.start();
     } catch (e) {
@@ -403,7 +420,7 @@ function SpeechRecognitionTest({ env, onInfo }: { env: Env; onInfo: (t: string) 
     setListening(true);
     setText("");
     setErr("");
-    const r = await listenOnce(12000, setText);
+    const r = await listenOnce(12000, { onPartial: setText });
     setListening(false);
     setText(r.text);
     if (r.error) setErr(r.error);
@@ -761,7 +778,7 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
     await say("Who should own this action?");
     for (let round = 0; round < 4; round++) {
       await wait(400); // let the speaker hand over to the microphone
-      const r = await listenOnce(8000, undefined, add);
+      const r = await listenOnce(8000, { onEvent: add, silenceMs: 1500 });
       add(`You: "${r.text}"${r.error ? ` (error: ${r.error})` : ""}`);
       await wait(300);
       if (!r.text) {
@@ -797,8 +814,9 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
         it. Come straight to this test.
       </p>
       <p>
-        Tap Start <b>once</b>, then don&apos;t touch the screen. Dispatch asks a question out loud; answer with a name. It
-        repeats what it heard and listens again. Say &ldquo;stop&rdquo; to finish.
+        Tap Start <b>once</b>, then don&apos;t touch the screen. Dispatch asks a question out loud; answer with a name,
+        then <b>wait</b>. About 1.5 seconds after you stop talking it should repeat the name and listen again. Say another
+        name, then on the next turn say &ldquo;stop&rdquo;.
       </p>
       <div className="flex gap-2">
         <button onClick={run} disabled={running} className="btn-primary">

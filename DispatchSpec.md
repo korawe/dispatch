@@ -200,7 +200,7 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
 | Built-in speech recognition | ✓ Worked on re-test, and in the detailed test (4b). The first attempt failed ("aborted"); the cause is unknown | Use it, because it's free (§10.3). Keyboard dictation is the fallback |
 | Read aloud (built-in voices) | ✓ Works with silent mode off; ✗ muted when the phone is on silent | Neither workaround (test 5b, A and B) gets round silent mode |
 | Recorded voice clip (as a cloud voice would deliver) | ✓ Plays with silent mode on | A cloud text-to-speech service works even when the phone is on silent |
-| Hands-free conversation | ✗ Failed twice. On the re-test (silent off), the spoken question wasn't heard | Being diagnosed with a step-by-step log (test 6 rebuilt) |
+| Hands-free conversation | ◐ Works with no taps after closing and reopening the app, with silent off: question spoken → mic listens → your words → spoken reply. Two earlier runs failed (the question wasn't heard), probably from leftover state from earlier tests. Two issues: the iPhone doesn't stop listening when you stop talking (it ran to the 8-second cutoff), and the mic takes about 1.8s to start after the question ends | Dispatch detects the pause itself (1.5s); re-test pending. Show "Listening…" on screen so you know when to talk |
 | Notifications | ✓ Works (test notification arrived) | Morning summary is feasible |
 | App icon badge | ✓ Works | |
 | Copy into Outlook | ✓ Works | Copy-button hand-off is fine |
@@ -343,5 +343,5 @@ Cost levers if needed: caching (already planned) and lower effort. Switching to 
 
 1. ~~Speech-to-text provider~~: built-in recognition (decision 30), subject to the AI policy review.
 2. Can a Siri Shortcut open the installed app directly? (Phase 0.)
-3. Can hands-free work? (Test 6 failed twice; being diagnosed.)
+3. Hands-free: the loop works (test 6). Being confirmed: does pause detection make the turn-taking feel natural?
 4. Which AI model drafts the emails, given the zero-cost wish? Decision 27 says Opus 5.5 (paid). The alternatives are Haiku 5.5 (much cheaper) or no paid AI at all (Claude's API isn't free).
