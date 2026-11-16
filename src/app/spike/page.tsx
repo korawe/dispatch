@@ -43,6 +43,8 @@ interface Recognition {
   onerror: ((e: { error: string }) => void) | null;
   onend: (() => void) | null;
   onstart?: (() => void) | null;
+  onaudiostart?: (() => void) | null;
+  onsoundstart?: (() => void) | null;
 }
 type RecognitionCtor = new () => Recognition;
 
@@ -379,7 +381,11 @@ function listenOnce(timeoutMs: number, { onPartial, onEvent, silenceMs }: Listen
       // Safety net in case the browser never fires "end".
       setTimeout(finish, 1500);
     };
-    if (onEvent) rec.onstart = () => onEvent("mic started");
+    if (onEvent) {
+      rec.onstart = () => onEvent("mic started");
+      rec.onaudiostart = () => onEvent("mic capturing audio");
+      rec.onsoundstart = () => onEvent("mic heard sound");
+    }
     rec.onresult = (e) => {
       const next = Array.from(e.results)
         .map((r) => r[0]?.transcript ?? "")
@@ -776,15 +782,22 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
     };
     // No await before this first speak(): iPhone only allows it straight from the tap.
     await say("Who should own this action?");
-    for (let round = 0; round < 4; round++) {
+    let misses = 0;
+    for (let round = 0; round < 8; round++) {
       await wait(400); // let the speaker hand over to the microphone
       const r = await listenOnce(8000, { onEvent: add, silenceMs: 1500 });
       add(`You: "${r.text}"${r.error ? ` (error: ${r.error})` : ""}`);
       await wait(300);
       if (!r.text) {
-        await say("I didn't catch that. Stopping the test.");
-        break;
+        misses++;
+        if (misses >= 2) {
+          await say("I still didn't catch that. Stopping the test.");
+          break;
+        }
+        await say("Sorry, I didn't catch that. Please say it again.");
+        continue;
       }
+      misses = 0;
       if (/\bstop\b/i.test(r.text)) {
         await say("OK, stopping.");
         break;
@@ -815,8 +828,9 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
       </p>
       <p>
         Tap Start <b>once</b>, then don&apos;t touch the screen. Dispatch asks a question out loud; answer with a name,
-        then <b>wait</b>. About 1.5 seconds after you stop talking it should repeat the name and listen again. Say another
-        name, then on the next turn say &ldquo;stop&rdquo;.
+        then <b>wait</b>. About 1.5 seconds after you stop talking it should repeat the name and listen again. Say a
+        different name on each turn: <b>John, Paul, Mary, Sarah</b>, then say &ldquo;<b>stop</b>&rdquo;. If it says it
+        didn&apos;t catch you, just repeat what you said.
       </p>
       <div className="flex gap-2">
         <button onClick={run} disabled={running} className="btn-primary">
