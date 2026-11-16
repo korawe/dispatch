@@ -19,6 +19,7 @@ const TESTS: { id: string; title: string; options?: string[] }[] = [
   { id: "mic-repeat", title: "3. Microphone permission after reopening", options: ["Didn't ask again", "Asked again"] },
   { id: "stt", title: "4. Built-in speech recognition", options: ["Accurate", "Some mistakes", "Didn't work"] },
   { id: "tts", title: "5. Read aloud" },
+  { id: "tts-silent", title: "5b. Read aloud with silent mode ON", options: ["Heard it", "No sound"] },
   { id: "handsfree", title: "6. Hands-free conversation" },
   { id: "push", title: "7. Notifications" },
   { id: "badge", title: "8. App icon badge" },
@@ -198,6 +199,7 @@ function Spike() {
       )}
       {card("stt", <SpeechRecognitionTest env={env} onInfo={(t) => note("stt", t)} />)}
       {card("tts", <ReadAloudTest env={env} onInfo={(t) => note("tts", t)} />)}
+      {card("tts-silent", <ReadAloudSilentTest env={env} onInfo={(t) => note("tts-silent", t)} />)}
       {card("handsfree", <HandsFreeTest env={env} onInfo={(t) => note("handsfree", t)} />)}
       {card("push", <PushTest env={env} onInfo={(t) => note("push", t)} />)}
       {card("badge", <BadgeTest env={env} onInfo={(t) => note("badge", t)} />)}
@@ -472,6 +474,77 @@ function ReadAloudTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
         <button onClick={play} className="btn-primary">▶ Play</button>
         <button onClick={() => window.speechSynthesis.cancel()} className="btn-secondary">Stop</button>
       </div>
+    </>
+  );
+}
+
+// Half a second of silence as a WAV file, generated in the browser.
+function silentWavUrl() {
+  const samples = 4000; // 0.5s at 8kHz, 8-bit mono
+  const buf = new ArrayBuffer(44 + samples);
+  const v = new DataView(buf);
+  const str = (o: number, s: string) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, "RIFF");
+  v.setUint32(4, 36 + samples, true);
+  str(8, "WAVE");
+  str(12, "fmt ");
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); // PCM
+  v.setUint16(22, 1, true); // mono
+  v.setUint32(24, 8000, true);
+  v.setUint32(28, 8000, true);
+  v.setUint16(32, 1, true);
+  v.setUint16(34, 8, true);
+  str(36, "data");
+  v.setUint32(40, samples, true);
+  for (let i = 0; i < samples; i++) v.setUint8(44 + i, 128); // 128 = silence for 8-bit audio
+  return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+}
+
+function ReadAloudSilentTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void }) {
+  const voices = useVoices(env.speechSynthesis);
+  const [msg, setMsg] = useState("");
+
+  function play() {
+    const steps: string[] = [];
+    // 1) Ask Safari to treat this page's sound as media playback, which ignores the silent switch.
+    const nav = navigator as Navigator & { audioSession?: { type: string } };
+    if (nav.audioSession) {
+      try {
+        nav.audioSession.type = "playback";
+        steps.push(`audioSession set to "${nav.audioSession.type}"`);
+      } catch (e) {
+        steps.push(`audioSession failed: ${String(e)}`);
+      }
+    } else {
+      steps.push("audioSession not available");
+    }
+    // 2) Keep a silent media clip looping while speaking, which also holds the media audio mode.
+    const clip = new Audio(silentWavUrl());
+    clip.loop = true;
+    clip
+      .play()
+      .then(() => steps.push("silent clip playing"))
+      .catch((e) => steps.push(`silent clip blocked: ${String(e)}`));
+    // 3) Speak, straight from the tap.
+    const voice = pickVoice(voices, "");
+    void speak("This is Dispatch, reading aloud with silent mode on. If you can hear this, the fix works.", voice).then(() => {
+      clip.pause();
+      const info = steps.join("; ");
+      setMsg(info);
+      onInfo(info);
+    });
+  }
+
+  if (!env.speechSynthesis) return <Status>Read-aloud isn&apos;t available here.</Status>;
+  return (
+    <>
+      <p>
+        Turn silent mode <b>on</b> and turn the volume up. Tap Play. Can you hear a voice? (Turn silent mode back to how you
+        like it afterwards.)
+      </p>
+      <button onClick={play} className="btn-primary">▶ Play</button>
+      {msg && <Status>{msg}</Status>}
     </>
   );
 }
