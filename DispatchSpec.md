@@ -198,9 +198,10 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
 | Microphone recording | ✓ Works | Records in a format cloud speech-to-text services accept |
 | Mic permission after reopening | ✓ Remembered | No repeated prompts |
 | Built-in speech recognition | ✗ Failed ("aborted", nothing heard) | Don't rely on it. Use a cloud speech-to-text service for everything (§10.3) |
-| Read aloud (built-in voices) | ✓ Works with silent mode off; ✗ muted when the phone is on silent | Neither workaround (test 5b, A and B) gets round silent mode. Testing whether a recorded clip, as a cloud voice would deliver, plays on silent (test 5c) |
+| Read aloud (built-in voices) | ✓ Works with silent mode off; ✗ muted when the phone is on silent | Neither workaround (test 5b, A and B) gets round silent mode |
+| Recorded voice clip (as a cloud voice would deliver) | ✓ Plays with silent mode on | A cloud text-to-speech service works even when the phone is on silent |
 | Hands-free conversation | ✗ Failed | Followed from the two failures above. Needs a rebuild on cloud speech-to-text, then a re-test |
-| Notifications | ✓ Works | Morning summary is feasible |
+| Notifications | ✓ Works (test notification arrived) | Morning summary is feasible |
 | App icon badge | ✓ Works | |
 | Copy into Outlook | ✓ Works | Copy-button hand-off is fine |
 | Keep screen awake | Not yet tested | |
@@ -227,7 +228,10 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
   - (a) **Built-in browser speech recognition:** free and fast, but reliability in iPhone home-screen apps and accuracy with names are unproven.
   - (b) **A cloud speech-to-text API:** records audio and sends it to a transcription service. More consistent across phone and desktop. Usually priced per minute of audio.
   - **Decided after Phase 0 testing:** use (b) for everything, including the short spoken replies in hands-free mode, because (a) failed on your iPhone (§9). Pick the provider once the AI policy check is done (§12).
-- **Text-to-speech** (read-back and prompts): planned as the browser's built-in voices, which are free. In Phase 0 they made no sound, possibly because the phone was on silent; this is being re-tested. If the built-in voices can't play reliably, use a cloud text-to-speech service instead, whose audio plays like normal media.
+- **Text-to-speech** (read-back and prompts): **decided, the browser's built-in voices (free).**
+  - On iPhone they're muted when the phone is on silent, so you switch silent off to hear Dispatch.
+  - Prompts and read-backs always show on screen as well, so nothing is lost on silent.
+  - A cloud voice would play on silent (test 5c), so it remains an option later, at a small cost.
 
 ### 10.4 AI drafting
 - **Model:** Claude Opus 5.5 (`claude-opus-5-5`), called through the official Anthropic TypeScript SDK from a server route.
@@ -327,6 +331,8 @@ Cost levers if needed: caching (already planned) and lower effort. Switching to 
 | 25 | Transcripts deleted after hand-off or cancel (within 24 hours at most) | You |
 | 26 | Weekend or bank holiday deadline → next working day, flagged | You |
 | 27 | Claude Opus 5.5 for drafting; speech-to-text provider chosen in Phase 0 | You |
+| 28 | Read-back and prompts use the free built-in voices; switch silent off to hear them | You (after Phase 0 tests) |
+| 29 | Speech-to-text must be free (zero cost) | You (after Phase 0 tests) |
 
 ## 16. Open questions
 

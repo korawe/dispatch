@@ -18,6 +18,7 @@ const TESTS: { id: string; title: string; options?: string[] }[] = [
   { id: "mic", title: "2. Record from the microphone" },
   { id: "mic-repeat", title: "3. Microphone permission after reopening", options: ["Didn't ask again", "Asked again"] },
   { id: "stt", title: "4. Built-in speech recognition", options: ["Accurate", "Some mistakes", "Didn't work"] },
+  { id: "stt-diag", title: "4b. Speech recognition, detailed", options: ["Worked in app", "Worked in Safari only", "Failed in both"] },
   { id: "tts", title: "5. Read aloud" },
   { id: "tts-silent", title: "5b. Read aloud with silent mode ON", options: ["A worked", "B worked", "Both worked", "Neither"] },
   { id: "clip-silent", title: "5c. Recorded voice clip with silent mode ON", options: ["Heard it", "No sound"] },
@@ -199,6 +200,7 @@ function Spike() {
         </p>
       )}
       {card("stt", <SpeechRecognitionTest env={env} onInfo={(t) => note("stt", t)} />)}
+      {card("stt-diag", <SpeechRecognitionDiagTest env={env} onInfo={(t) => note("stt-diag", t)} />)}
       {card("tts", <ReadAloudTest env={env} onInfo={(t) => note("tts", t)} />)}
       {card("tts-silent", <ReadAloudSilentTest env={env} onInfo={(t) => note("tts-silent", t)} />)}
       {card("clip-silent", <VoiceClipTest onInfo={(t) => note("clip-silent", t)} />)}
@@ -405,6 +407,78 @@ function SpeechRecognitionTest({ env, onInfo }: { env: Env; onInfo: (t: string) 
         {listening ? "Listening…" : "🎙 Listen"}
       </button>
       {(text || err) && <Status>{text || "(nothing heard)"}{err && ` · error: ${err}`}</Status>}
+    </>
+  );
+}
+
+// Logs every event the recogniser fires, so we can see exactly where it stops.
+function SpeechRecognitionDiagTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void }) {
+  const [lines, setLines] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const all = useRef<string[]>([]);
+
+  function run(mode: "simple" | "continuous") {
+    const Ctor = getRecognitionCtor();
+    if (!Ctor) return;
+    const where = env.installed ? "app" : "Safari";
+    const t0 = Date.now();
+    const add = (l: string) => {
+      all.current = [...all.current, `[${where} ${mode} ${((Date.now() - t0) / 1000).toFixed(1)}s] ${l}`];
+      setLines(all.current);
+      onInfo(all.current.join(" | "));
+    };
+    setBusy(true);
+    const rec = new Ctor() as Recognition & Record<string, unknown>;
+    rec.lang = "en-GB";
+    rec.continuous = mode === "continuous";
+    rec.interimResults = mode === "continuous";
+    for (const ev of ["start", "audiostart", "soundstart", "speechstart", "speechend", "soundend", "audioend", "nomatch"]) {
+      rec[`on${ev}`] = () => add(ev);
+    }
+    rec.onresult = (e) =>
+      add(
+        `result: "${Array.from(e.results)
+          .map((r) => r[0]?.transcript ?? "")
+          .join(" ")}"`
+      );
+    rec.onerror = (e) => add(`ERROR: ${e.error}`);
+    rec.onend = () => {
+      add("end");
+      setBusy(false);
+    };
+    try {
+      rec.start();
+      add("start() called");
+    } catch (e) {
+      add(`start() threw: ${String(e)}`);
+      setBusy(false);
+    }
+    // Stop after 10 seconds whatever happens.
+    setTimeout(() => {
+      try {
+        rec.stop();
+      } catch {
+        /* already stopped */
+      }
+    }, 10000);
+  }
+
+  if (!env.speechRecognition) return <Status>Built-in speech recognition isn&apos;t available here.</Status>;
+  return (
+    <>
+      <p>
+        Tap <b>Listen (simple)</b> and say a short sentence. Then tap <b>Listen (continuous)</b> and do the same. Each stops
+        on its own within 10 seconds.
+      </p>
+      <p>
+        Do this <b>in the installed app</b> first. Then open <b>dispatch-85on.vercel.app/spike</b> in <b>Safari</b> and do
+        it there too. The grey log shows which one you were in.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button onClick={() => run("simple")} disabled={busy} className="btn-primary">🎙 Listen (simple)</button>
+        <button onClick={() => run("continuous")} disabled={busy} className="btn-primary">🎙 Listen (continuous)</button>
+      </div>
+      {lines.length > 0 && <Status>{lines.map((l, i) => <span key={i} className="block">{l}</span>)}</Status>}
     </>
   );
 }
