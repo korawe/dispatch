@@ -19,7 +19,7 @@ const TESTS: { id: string; title: string; options?: string[] }[] = [
   { id: "mic-repeat", title: "3. Microphone permission after reopening", options: ["Didn't ask again", "Asked again"] },
   { id: "stt", title: "4. Built-in speech recognition", options: ["Accurate", "Some mistakes", "Didn't work"] },
   { id: "tts", title: "5. Read aloud" },
-  { id: "tts-silent", title: "5b. Read aloud with silent mode ON", options: ["Heard it", "No sound"] },
+  { id: "tts-silent", title: "5b. Read aloud with silent mode ON", options: ["A worked", "B worked", "Both worked", "Neither"] },
   { id: "handsfree", title: "6. Hands-free conversation" },
   { id: "push", title: "7. Notifications" },
   { id: "badge", title: "8. App icon badge" },
@@ -501,50 +501,96 @@ function silentWavUrl() {
   return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
 }
 
+type AudioSessionNav = Navigator & { audioSession?: { type: string } };
+
 function ReadAloudSilentTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void }) {
   const voices = useVoices(env.speechSynthesis);
-  const [msg, setMsg] = useState("");
+  const [lines, setLines] = useState<string[]>([]);
+  const all = useRef<string[]>([]);
 
-  function play() {
-    const steps: string[] = [];
-    // 1) Ask Safari to treat this page's sound as media playback, which ignores the silent switch.
-    const nav = navigator as Navigator & { audioSession?: { type: string } };
-    if (nav.audioSession) {
-      try {
-        nav.audioSession.type = "playback";
-        steps.push(`audioSession set to "${nav.audioSession.type}"`);
-      } catch (e) {
-        steps.push(`audioSession failed: ${String(e)}`);
-      }
-    } else {
-      steps.push("audioSession not available");
+  function log(l: string) {
+    all.current = [...all.current, l];
+    setLines(all.current);
+    onInfo(all.current.join(" | "));
+  }
+
+  // Speaks and reports what the browser did: started? finished? error?
+  function speakWithReport(label: string, done?: () => void) {
+    const t0 = Date.now();
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(`Test ${label}. This is Dispatch, reading aloud. Can you hear me?`);
+    u.lang = "en-GB";
+    const v = pickVoice(voices, "");
+    if (v) u.voice = v;
+    let started = false;
+    u.onstart = () => {
+      started = true;
+      log(`${label}: started speaking`);
+    };
+    u.onend = () => {
+      log(`${label}: finished after ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+      done?.();
+    };
+    u.onerror = (e) => {
+      log(`${label}: error "${e.error}"`);
+      done?.();
+    };
+    window.speechSynthesis.speak(u);
+    setTimeout(() => {
+      if (!started) log(`${label}: never started (speaking=${window.speechSynthesis.speaking}, pending=${window.speechSynthesis.pending})`);
+    }, 2500);
+  }
+
+  // A: tell Safari this page plays media (which ignores the silent switch), then speak.
+  function tryA() {
+    const nav = navigator as AudioSessionNav;
+    if (!nav.audioSession) {
+      log("A: audioSession not available on this device");
+      return;
     }
-    // 2) Keep a silent media clip looping while speaking, which also holds the media audio mode.
+    try {
+      nav.audioSession.type = "playback";
+      log(`A: audioSession = "${nav.audioSession.type}"`);
+    } catch (e) {
+      log(`A: couldn't set audioSession: ${String(e)}`);
+    }
+    speakWithReport("A", () => {
+      // Put it back so the other tests behave normally.
+      try {
+        nav.audioSession!.type = "auto";
+      } catch {
+        /* ignore */
+      }
+    });
+  }
+
+  // B: play a short silent media clip first, then speak once it has finished.
+  function tryB() {
+    // Speak a blank first, straight from the tap, so iPhone allows the real speech that comes later.
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance(" "));
     const clip = new Audio(silentWavUrl());
-    clip.loop = true;
+    clip.onended = () => {
+      log("B: silent clip finished");
+      speakWithReport("B");
+    };
     clip
       .play()
-      .then(() => steps.push("silent clip playing"))
-      .catch((e) => steps.push(`silent clip blocked: ${String(e)}`));
-    // 3) Speak, straight from the tap.
-    const voice = pickVoice(voices, "");
-    void speak("This is Dispatch, reading aloud with silent mode on. If you can hear this, the fix works.", voice).then(() => {
-      clip.pause();
-      const info = steps.join("; ");
-      setMsg(info);
-      onInfo(info);
-    });
+      .then(() => log("B: silent clip playing"))
+      .catch((e) => log(`B: silent clip blocked: ${String(e)}`));
   }
 
   if (!env.speechSynthesis) return <Status>Read-aloud isn&apos;t available here.</Status>;
   return (
     <>
       <p>
-        Turn silent mode <b>on</b> and turn the volume up. Tap Play. Can you hear a voice? (Turn silent mode back to how you
-        like it afterwards.)
+        Turn silent mode <b>on</b> and turn the volume up. Tap <b>Try A</b> and wait 10 seconds, then tap <b>Try B</b> and
+        wait 10 seconds. Which one could you hear? (Turn silent mode back afterwards.)
       </p>
-      <button onClick={play} className="btn-primary">▶ Play</button>
-      {msg && <Status>{msg}</Status>}
+      <div className="flex gap-2">
+        <button onClick={tryA} className="btn-primary">▶ Try A</button>
+        <button onClick={tryB} className="btn-primary">▶ Try B</button>
+      </div>
+      {lines.length > 0 && <Status>{lines.map((l, i) => <span key={i} className="block">{l}</span>)}</Status>}
     </>
   );
 }
