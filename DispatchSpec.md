@@ -197,10 +197,10 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
 | Install to Home Screen | ✓ Works | On newer iOS, Share sits under the **⋯** button in Safari |
 | Microphone recording | ✓ Works | Records in a format cloud speech-to-text services accept |
 | Mic permission after reopening | ✓ Remembered | No repeated prompts |
-| Built-in speech recognition | ✗ Failed ("aborted", nothing heard) | Don't rely on it. Use a cloud speech-to-text service for everything (§10.3) |
+| Built-in speech recognition | ✓ Worked on re-test, and in the detailed test (4b). The first attempt failed ("aborted"); the cause is unknown | Use it, because it's free (§10.3). Keyboard dictation is the fallback |
 | Read aloud (built-in voices) | ✓ Works with silent mode off; ✗ muted when the phone is on silent | Neither workaround (test 5b, A and B) gets round silent mode |
 | Recorded voice clip (as a cloud voice would deliver) | ✓ Plays with silent mode on | A cloud text-to-speech service works even when the phone is on silent |
-| Hands-free conversation | ✗ Failed | Followed from the two failures above. Needs a rebuild on cloud speech-to-text, then a re-test |
+| Hands-free conversation | ✗ Failed twice. On the re-test (silent off), the spoken question wasn't heard | Being diagnosed with a step-by-step log (test 6 rebuilt) |
 | Notifications | ✓ Works (test notification arrived) | Morning summary is feasible |
 | App icon badge | ✓ Works | |
 | Copy into Outlook | ✓ Works | Copy-button hand-off is fine |
@@ -227,7 +227,11 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
 - **Speech-to-text:** Claude doesn't take audio input, so transcription needs a separate step. Two options, to be compared in the Phase 0 spike:
   - (a) **Built-in browser speech recognition:** free and fast, but reliability in iPhone home-screen apps and accuracy with names are unproven.
   - (b) **A cloud speech-to-text API:** records audio and sends it to a transcription service. More consistent across phone and desktop. Usually priced per minute of audio.
-  - **Decided after Phase 0 testing:** use (b) for everything, including the short spoken replies in hands-free mode, because (a) failed on your iPhone (§9). Pick the provider once the AI policy check is done (§12).
+  - **Decided after Phase 0 testing:** use (a), because speech-to-text must be free (decision 29) and it worked in the installed iPhone app on re-test (§9).
+    - If it fails, the fallback is the iPhone keyboard's dictation (the mic key), which is also free.
+    - Desktop is still to be tested (test 12).
+    - For the IT check (§12): built-in recognition comes from Apple on iPhone and Microsoft in Edge, so audio may be processed on their servers.
+    - (b) remains an option later.
 - **Text-to-speech** (read-back and prompts): **decided, the browser's built-in voices (free).**
   - On iPhone they're muted when the phone is on silent, so you switch silent off to hear Dispatch.
   - Prompts and read-backs always show on screen as well, so nothing is lost on silent.
@@ -333,8 +337,11 @@ Cost levers if needed: caching (already planned) and lower effort. Switching to 
 | 27 | Claude Opus 5.5 for drafting; speech-to-text provider chosen in Phase 0 | You |
 | 28 | Read-back and prompts use the free built-in voices; switch silent off to hear them | You (after Phase 0 tests) |
 | 29 | Speech-to-text must be free (zero cost) | You (after Phase 0 tests) |
+| 30 | Speech-to-text uses the built-in browser recognition, with keyboard dictation as the fallback | Follows from 29 and the re-test of test 4 |
 
 ## 16. Open questions
 
-1. Speech-to-text provider (Phase 0 spike, and the AI policy review).
+1. ~~Speech-to-text provider~~: built-in recognition (decision 30), subject to the AI policy review.
 2. Can a Siri Shortcut open the installed app directly? (Phase 0.)
+3. Can hands-free work? (Test 6 failed twice; being diagnosed.)
+4. Which AI model drafts the emails, given the zero-cost wish? Decision 27 says Opus 5.5 (paid). The alternatives are Haiku 5.5 (much cheaper) or no paid AI at all (Claude's API isn't free).

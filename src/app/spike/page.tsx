@@ -42,6 +42,8 @@ interface Recognition {
   onresult: ((e: { results: RecognitionResultList }) => void) | null;
   onerror: ((e: { error: string }) => void) | null;
   onend: (() => void) | null;
+  onstart?: (() => void) | null;
+  onspeechstart?: (() => void) | null;
 }
 type RecognitionCtor = new () => Recognition;
 
@@ -336,7 +338,11 @@ function MicTest({ onInfo }: { onInfo: (t: string) => void }) {
   );
 }
 
-function listenOnce(timeoutMs: number, onPartial?: (t: string) => void): Promise<{ text: string; error?: string }> {
+function listenOnce(
+  timeoutMs: number,
+  onPartial?: (t: string) => void,
+  onEvent?: (e: string) => void
+): Promise<{ text: string; error?: string }> {
   return new Promise((resolve) => {
     const Ctor = getRecognitionCtor();
     if (!Ctor) return resolve({ text: "", error: "not supported" });
@@ -353,6 +359,10 @@ function listenOnce(timeoutMs: number, onPartial?: (t: string) => void): Promise
       clearTimeout(timer);
       resolve({ text: text.trim(), error });
     };
+    if (onEvent) {
+      rec.onstart = () => onEvent("mic started");
+      rec.onspeechstart = () => onEvent("mic heard speech");
+    }
     rec.onresult = (e) => {
       text = Array.from(e.results)
         .map((r) => r[0]?.transcript ?? "")
@@ -361,8 +371,12 @@ function listenOnce(timeoutMs: number, onPartial?: (t: string) => void): Promise
     };
     rec.onerror = (e) => {
       error = e.error;
+      onEvent?.(`mic ERROR: ${e.error}`);
     };
-    rec.onend = finish;
+    rec.onend = () => {
+      onEvent?.("mic stopped");
+      finish();
+    };
     const timer = setTimeout(() => {
       try {
         rec.stop();
@@ -498,23 +512,38 @@ function useVoices(enabled: boolean) {
   return voices;
 }
 
-function speak(text: string, voice?: SpeechSynthesisVoice): Promise<void> {
+function speak(text: string, voice?: SpeechSynthesisVoice, onEvent?: (e: string) => void): Promise<void> {
   return new Promise((resolve) => {
+    const synth = window.speechSynthesis;
     const u = new SpeechSynthesisUtterance(text);
     u.lang = "en-GB";
     if (voice) u.voice = voice;
     let done = false;
-    const finish = () => {
+    let started = false;
+    const finish = (how: string) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
+      onEvent?.(how);
       resolve();
     };
-    u.onend = finish;
-    u.onerror = finish;
+    u.onstart = () => {
+      started = true;
+      onEvent?.("voice started");
+    };
+    u.onend = () => finish("voice finished");
+    u.onerror = (e) => finish(`voice ERROR: ${e.error}`);
     // Safety net in case the browser never fires "end".
-    const timer = setTimeout(finish, 3000 + text.length * 90);
-    window.speechSynthesis.speak(u);
+    const timer = setTimeout(
+      () =>
+        finish(
+          started
+            ? "voice timed out while speaking"
+            : `voice NEVER STARTED (speaking=${synth.speaking}, pending=${synth.pending}, paused=${synth.paused})`
+        ),
+      3000 + text.length * 90
+    );
+    synth.speak(u);
   });
 }
 
@@ -703,39 +732,60 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
   const voices = useVoices(env.speechSynthesis);
   const [running, setRunning] = useState(false);
   const [log, setLog] = useState<string[]>([]);
+  const [copied, setCopied] = useState(false);
 
   async function run() {
+    const t0 = Date.now();
     const lines: string[] = [];
     const add = (l: string) => {
-      lines.push(l);
+      lines.push(`${((Date.now() - t0) / 1000).toFixed(1)}s ${l}`);
       setLog([...lines]);
     };
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
     setRunning(true);
+    setCopied(false);
+    const synth = window.speechSynthesis;
+    const session = (navigator as AudioSessionNav).audioSession?.type ?? "n/a";
+    add(
+      `setup: ${env.installed ? "app" : "Safari"}, ${voices.length} voices, audio session ${session}, ` +
+        `speaking=${synth.speaking}, pending=${synth.pending}`
+    );
+    // Clear anything an earlier test left stuck in the speech queue.
+    synth.cancel();
     const voice = pickVoice(voices, "");
-    // The first speak() call happens straight from the tap, which iPhone requires.
-    add("Dispatch: Who should own this action?");
-    await speak("Who should own this action?", voice);
+    const say = async (text: string) => {
+      add(`Dispatch: ${text}`);
+      await speak(text, voice, add);
+    };
+    // No await before this first speak(): iPhone only allows it straight from the tap.
+    await say("Who should own this action?");
     for (let round = 0; round < 4; round++) {
-      add("…listening");
-      const r = await listenOnce(8000);
+      await wait(400); // let the speaker hand over to the microphone
+      const r = await listenOnce(8000, undefined, add);
       add(`You: "${r.text}"${r.error ? ` (error: ${r.error})` : ""}`);
+      await wait(300);
       if (!r.text) {
-        add("Dispatch: I didn't catch that. Stopping the test.");
-        await speak("I didn't catch that. Stopping the test.", voice);
+        await say("I didn't catch that. Stopping the test.");
         break;
       }
       if (/\bstop\b/i.test(r.text)) {
-        add("Dispatch: OK, stopping.");
-        await speak("OK, stopping.", voice);
+        await say("OK, stopping.");
         break;
       }
-      const reply = `I heard ${r.text}. Say another name, or say stop.`;
-      add(`Dispatch: ${reply}`);
-      await speak(reply, voice);
+      await say(`I heard ${r.text}. Say another name, or say stop.`);
     }
-    add("— finished —");
+    add("finished");
     onInfo(lines.join(" | "));
     setRunning(false);
+  }
+
+  async function copyLog() {
+    try {
+      await navigator.clipboard.writeText(log.join("\n"));
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
   }
 
   if (!env.speechRecognition || !env.speechSynthesis)
@@ -743,12 +793,23 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
   return (
     <>
       <p>
-        Tap Start <b>once</b>, then don&apos;t touch the screen. Dispatch asks a question out loud; answer with a name. It
-        repeats what it heard and listens again. Say &ldquo;stop&rdquo; to finish. Did it work with no more taps?
+        First: switch <b>silent mode off</b>, turn the volume up, then <b>close Dispatch fully</b> (swipe it away) and reopen
+        it. Come straight to this test.
       </p>
-      <button onClick={run} disabled={running} className="btn-primary">
-        {running ? "Running…" : "Start hands-free test"}
-      </button>
+      <p>
+        Tap Start <b>once</b>, then don&apos;t touch the screen. Dispatch asks a question out loud; answer with a name. It
+        repeats what it heard and listens again. Say &ldquo;stop&rdquo; to finish.
+      </p>
+      <div className="flex gap-2">
+        <button onClick={run} disabled={running} className="btn-primary">
+          {running ? "Running…" : "Start hands-free test"}
+        </button>
+        {log.length > 0 && !running && (
+          <button onClick={copyLog} className="btn-secondary">
+            {copied ? "Copied ✓" : "Copy log"}
+          </button>
+        )}
+      </div>
       {log.length > 0 && <Status>{log.map((l, i) => <span key={i} className="block">{l}</span>)}</Status>}
     </>
   );
