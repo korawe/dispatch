@@ -11,7 +11,7 @@ Turn a quick voice note into clear delegation emails. Single-user test app.
 - `/admin` links to the Phase 0 tests, the look-and-feel options and the future features list (`/admin/features`). The shared list is kept in `src/app/admin/features/features.ts`; on an iPhone, a ＋ button adds features saved on that phone.
 - `/note` is a note, start to finish: Dispatch asks for each action's owner, what needs doing, why it matters and what done looks like (both optional: say "skip" or tap Skip), and when it's due, only if you haven't already said it ("by Friday"; spec decision 37), then who to copy in, then shows the emails with copy buttons for Outlook. Answers can be typed or spoken (spec decision 32). Under each question, **Speak this answer** listens for just that answer, and **Hands-free** keeps the mic on for the whole note. **Read questions aloud** makes Dispatch read each question, with one tap per answer (Hands-free isn't offered then). You end a spoken answer by saying "next" or "stop", or tapping Done (decision 35). On iPhone, Speak this answer and Hands-free share one listening session for the whole note, because starting and stopping one per answer stops the iPhone hearing anything. Each part of an email has a copy icon in its top-right corner. Progress is saved on the device.
 - `/people` is Delegates: the simple people list (name and email), saved on the device.
-- The logic lives in `src/lib`: `dates.ts` (the deadline rules in spec §7, and spotting a deadline said in passing), `email.ts` (the template in §6), `voice.ts` (listening and speaking; "next" or "stop" ends an answer), `voice-answers.ts` (yes/no, names, "no one", "skip", "back"), `people.ts`, `settings.ts` and `local.ts` (on-device storage).
+- The logic lives in `src/lib`: `dates.ts` (the deadline rules in spec §7, and spotting a deadline said in passing), `bank-holidays.ts` (the built-in England & Wales list; `/api/bank-holidays` gets the latest from gov.uk, cached for a week, and `bank-holidays-refresh.ts` saves it on the device), `email.ts` (the template in §6), `voice.ts` (listening and speaking; "next" or "stop" ends an answer), `voice-answers.ts` (yes/no, names, "no one", "skip", "back"), `people.ts`, `settings.ts` and `local.ts` (on-device storage).
 
 Phase 0 pages that are still around:
 
@@ -26,6 +26,8 @@ npm install
 npm run dev
 npm test        # the deadline rules and email template (Node's built-in test runner)
 ```
+
+On a network that inspects HTTPS traffic (a work laptop), Node won't trust the company certificate, so `/api/bank-holidays` can't reach gov.uk and sends the built-in list instead. To use the Windows certificate store, start the server with `$env:NODE_OPTIONS = "--use-system-ca"; npm run dev` in PowerShell. Vercel doesn't need this.
 
 Environment variables (in `.env.local`, which is git-ignored, and in Vercel project settings):
 

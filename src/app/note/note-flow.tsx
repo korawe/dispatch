@@ -9,6 +9,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { TopBar } from "@/components/top-bar";
+import { refreshBankHolidays } from "@/lib/bank-holidays-refresh";
 import { END_OF_DAY, findDeadlineIn, formatDeadline, parseDeadline, withoutPhrase, type Deadline } from "@/lib/dates";
 import { buildDraft, groupByOwner, titleFor, type CapturedAction, type EmailDraft } from "@/lib/email";
 import { readLocal, writeLocal } from "@/lib/local";
@@ -268,6 +269,9 @@ export function NoteFlow() {
 
   // Save progress on the device after every change.
   useEffect(() => writeLocal(NOTE_KEY, note), [note]);
+
+  // Bank holidays: the saved gov.uk list, fetched again once it's a week old (§7).
+  useEffect(() => refreshBankHolidays(), []);
 
   const a = note.answers;
   const go = (step: Step) => setNote((n) => ({ ...n, step }));

@@ -162,9 +162,10 @@ Thanks, Killian
 | "End of day" | 17:30 |
 | A deadline with a date but no time | 17:30 that day |
 | Working days | Mon–Fri. Relative deadlines skip weekends |
-| Bank holidays | England & Wales bank holidays are skipped (source: the gov.uk bank holidays feed, cached and refreshed weekly) |
+| Bank holidays | England & Wales bank holidays are skipped (source: the gov.uk bank holidays feed, cached and refreshed weekly). A copy is built into the app (gov.uk's list on 22 Nov 2026, up to Dec 2028), so it works offline and from the first launch; the app fetches the latest once a week (decision 38) |
 | "In 3 days" said on a Thursday | Tuesday, 17:30 |
-| A deadline that lands on a weekend or bank holiday | Moved to the next working day (17:30), flagged in the read-back or review |
+| "End of the week" | That week's last working day: Friday, or Thursday when the Friday is a bank holiday (Good Friday), flagged (decision 38) |
+| A deadline that lands on a weekend or bank holiday | Moved to the next working day (17:30), flagged with the reason, e.g. "Fri 25 Dec is Christmas Day and Mon 28 Dec is the substitute day for Boxing Day, so it's moved to the next working day" |
 | A deadline in the past | Dispatch asks you to confirm or change it |
 | Vague ("soon", "ASAP", "when you can") | Dispatch asks for a date (§5 step 4) |
 
@@ -361,6 +362,7 @@ For now, everything runs on free tiers.
 | 35 | A spoken answer ends when you say "stop" or "next" (left out of the answer, even if said twice) or tap Done, not after a pause, so you can stop to think. "Next" was added on 22 Nov because it feels more natural in conversation. On iPhone, with Read questions aloud off, one listening session runs for the whole note, started by the first tap, because starting and stopping one per answer left it hearing nothing (test 6, and twice in real use on 22 Nov). With Read questions aloud on, each answer is a fresh listen that the iPhone ends at your pause (round 7), so there a pause ends the answer | You (22 Nov) |
 | 36 | Under each question, two voice buttons side by side: **Speak this answer** (just this one) and **Hands-free** (the mic stays on for the whole note), so you choose how to answer from the first question. The Speak prompts setting is shown as **Read questions aloud**, so it isn't confused with Speak this answer | You (22 Nov) |
 | 37 | A shorter capture: no title question (the subject uses the start of the action); **What needs doing?** comes straight after the owner; **Why does it matter?** and **What does done look like?** are optional (skip by voice or tap); **When is it due?** is only asked if no deadline was said in the answers, and one that was said is shown on the next screen, where it can be changed. Capture stays one question at a time, not one free-form answer (that's what AI drafting would bring, §10.4) | You (22 Nov) |
+| 38 | Bank holidays (Phase 2): the gov.uk England & Wales list is built into the app and refreshed weekly through the app's own server (`/api/bank-holidays`, cached for a week), then saved on the device. "End of the week" means the week's last working day, so it's Thursday when Friday is Good Friday, rather than being moved to the Tuesday after Easter | Claude, following §7 (22 Nov) |
 
 ## 16. Open questions
 

@@ -1,5 +1,6 @@
-// Deadline rules from DispatchSpec.md §7, for Phase 1 (bank holidays come in Phase 2). Works in the
+// Deadline rules from DispatchSpec.md §7, including England & Wales bank holidays (Phase 2). Works in the
 // device's own time zone, which is UK time for Dispatch's one user.
+import { BUNDLED_BANK_HOLIDAYS, describeBankHoliday, type BankHoliday } from "./bank-holidays.ts";
 
 export type Deadline =
   | { kind: "ok"; at: Date; moved?: string } // moved: why the day changed (a weekend)
@@ -43,9 +44,32 @@ const atTime = (d: Date, hour: number, minute: number) => new Date(d.getFullYear
 const mondayOf = (d: Date) => addDays(startOfDay(d), -((d.getDay() + 6) % 7));
 const count = (word: string) => COUNT_WORDS[word] ?? Number(word);
 
-/** Monday to Friday. Bank holidays are added in Phase 2. */
+// The bank holidays in use: the built-in copy until the app has fetched the latest from gov.uk.
+let bankHolidays = new Map<string, BankHoliday>();
+/** Replaces the bank holidays in use (the app calls this with the latest gov.uk list). */
+export function setBankHolidays(list: BankHoliday[]) {
+  bankHolidays = new Map(list.map((h) => [h.date, h]));
+}
+setBankHolidays(BUNDLED_BANK_HOLIDAYS);
+
+const pad = (n: number) => String(n).padStart(2, "0");
+const dayKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+/** The bank holiday on this day, as said in a sentence ("Christmas Day"), or undefined. */
+export function bankHolidayOn(d: Date) {
+  const h = bankHolidays.get(dayKey(d));
+  return h && describeBankHoliday(h);
+}
+
+/** Monday to Friday, except England & Wales bank holidays. */
 export function isWorkingDay(d: Date) {
-  return d.getDay() !== 0 && d.getDay() !== 6;
+  return d.getDay() !== 0 && d.getDay() !== 6 && !bankHolidays.has(dayKey(d));
+}
+
+/** "End of the week": that week's last working day, normally Friday (Thursday when Friday is Good Friday). */
+function endOfWeek(monday: Date) {
+  for (let d = addDays(monday, 4); d >= monday; d = addDays(d, -1)) if (isWorkingDay(d)) return d;
+  return addDays(monday, 4);
 }
 
 function addWorkingDays(d: Date, n: number) {
@@ -96,11 +120,14 @@ export function parseDeadline(input: string, now: Date = new Date()): Deadline {
 
   // The day.
   let day: Date | null = null;
-  if (/\bend of next week\b/.test(s)) {
-    day = addDays(mondayOf(today), 7 + 4);
-  } else if (/\b(end of (the |this )?week|eow|this week|by the weekend)\b/.test(s)) {
-    const friday = addDays(mondayOf(today), 4);
-    day = friday < today ? addDays(friday, 7) : friday;
+  let endOfWeekNote = ""; // when the end of the week isn't Friday
+  if (/\bend of next week\b/.test(s) || /\b(end of (the |this )?week|eow|this week|by the weekend)\b/.test(s)) {
+    const next = /\bend of next week\b/.test(s);
+    day = endOfWeek(addDays(mondayOf(today), next ? 7 : 0));
+    if (!next && day < today) day = endOfWeek(addDays(mondayOf(today), 7)); // said at the weekend: the coming week
+    const friday = addDays(mondayOf(day), 4);
+    if (day.getTime() !== friday.getTime())
+      endOfWeekNote = `${formatDay(friday)} is ${bankHolidayOn(friday) ?? "not a working day"}, so the end of the week is ${formatDay(day)}`;
   } else if ((m = s.match(new RegExp(`\\bin ${COUNT} (working |business )?days?\\b`)))) {
     day = addWorkingDays(today, count(m[1])); // relative deadlines skip weekends (§7)
   } else if ((m = s.match(new RegExp(`\\bin ${COUNT} weeks?\\b`)))) {
@@ -137,15 +164,21 @@ export function parseDeadline(input: string, now: Date = new Date()): Deadline {
 
   const at = atTime(day, time?.hour ?? END_OF_DAY.hour, time?.minute ?? END_OF_DAY.minute);
   if (at.getTime() < now.getTime()) return { kind: "past", at };
-  if (isWorkingDay(at)) return { kind: "ok", at };
+  if (isWorkingDay(at)) return endOfWeekNote ? { kind: "ok", at, moved: endOfWeekNote } : { kind: "ok", at };
 
-  // A weekend moves to the next working day at 17:30, flagged (§7).
+  // A weekend or bank holiday moves to the next working day at 17:30, flagged (§7), with the reason, including
+  // any bank holiday skipped on the way ("Sat 26 Dec is a weekend and Mon 28 Dec is the substitute day for…").
+  const reasons = [`${formatDay(at)} is ${bankHolidayOn(at) ?? "a weekend"}`];
   let next = addDays(at, 1);
-  while (!isWorkingDay(next)) next = addDays(next, 1);
+  while (!isWorkingDay(next)) {
+    const holiday = bankHolidayOn(next);
+    if (holiday) reasons.push(`${formatDay(next)} is ${holiday}`);
+    next = addDays(next, 1);
+  }
   return {
     kind: "ok",
     at: atTime(next, END_OF_DAY.hour, END_OF_DAY.minute),
-    moved: `${formatDay(at)} is a weekend, so it's moved to the next working day`,
+    moved: `${reasons.join(" and ")}, so it's moved to the next working day`,
   };
 }
 
@@ -210,6 +243,5 @@ export function formatDay(d: Date) {
 
 /** e.g. "17:30, Fri 21 Nov". */
 export function formatDeadline(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(d.getHours())}:${pad(d.getMinutes())}, ${formatDay(d)}`;
 }

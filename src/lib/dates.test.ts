@@ -1,7 +1,8 @@
 // Run with: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { findDeadlineIn, formatDeadline, parseDeadline, withoutPhrase, type Deadline } from "./dates.ts";
+import { BUNDLED_BANK_HOLIDAYS } from "./bank-holidays.ts";
+import { findDeadlineIn, formatDeadline, isWorkingDay, parseDeadline, setBankHolidays, withoutPhrase, type Deadline } from "./dates.ts";
 
 // Thursday 19 November 2026, 10:00.
 const NOW = new Date(2026, 10, 19, 10, 0);
@@ -69,6 +70,51 @@ test("spec §7: a weekend moves to the next working day at 17:30, flagged", () =
   assert.equal(due("Saturday"), "17:30, Mon 23 Nov (moved)");
   assert.equal(due("Sunday at 10am"), "17:30, Mon 23 Nov (moved)");
   assert.equal(due("28 November"), "17:30, Mon 30 Nov (moved)");
+});
+
+// Phase 2: England & Wales bank holidays (the built-in gov.uk list).
+function dueWhy(input: string, now = NOW) {
+  const d = parseDeadline(input, now);
+  return d.kind === "ok" ? `${formatDeadline(d.at)}${d.moved ? ` | ${d.moved}` : ""}` : d.kind;
+}
+
+test("spec §7: a bank holiday moves to the next working day, saying why", () => {
+  // Christmas 2026: Fri 25 Dec, then the weekend, then the Boxing Day substitute on Mon 28 Dec.
+  assert.equal(
+    dueWhy("25 December"),
+    "17:30, Tue 29 Dec | Fri 25 Dec is Christmas Day and Mon 28 Dec is the substitute day for Boxing Day, so it's moved to the next working day"
+  );
+  assert.equal(
+    dueWhy("26 December"),
+    "17:30, Tue 29 Dec | Sat 26 Dec is a weekend and Mon 28 Dec is the substitute day for Boxing Day, so it's moved to the next working day"
+  );
+  assert.equal(dueWhy("tomorrow", new Date(2026, 11, 31, 10, 0)), "17:30, Mon 4 Jan | Fri 1 Jan is New Year’s Day, so it's moved to the next working day");
+  assert.equal(dueWhy("3 May"), "17:30, Tue 4 May | Mon 3 May is the Early May bank holiday, so it's moved to the next working day");
+});
+
+test("spec §7: relative deadlines skip bank holidays", () => {
+  // Said on Wed 23 Dec 2026: Thu 24 (1), [Fri 25, weekend, Mon 28], Tue 29 (2), Wed 30 (3).
+  assert.equal(due("in 3 days", new Date(2026, 11, 23, 10, 0)), "17:30, Wed 30 Dec");
+  assert.equal(due("in 3 working days", new Date(2026, 11, 23, 10, 0)), "17:30, Wed 30 Dec");
+});
+
+test("end of the week is the week's last working day: Thursday before Good Friday", () => {
+  // Good Friday 2027 is Fri 26 Mar.
+  assert.equal(dueWhy("end of the week", new Date(2027, 2, 22, 10, 0)), "17:30, Thu 25 Mar | Fri 26 Mar is Good Friday, so the end of the week is Thu 25 Mar");
+  assert.equal(dueWhy("end of next week", new Date(2027, 2, 15, 10, 0)), "17:30, Thu 25 Mar | Fri 26 Mar is Good Friday, so the end of the week is Thu 25 Mar");
+  assert.equal(dueWhy("end of the week"), "17:30, Fri 20 Nov"); // an ordinary week: Friday, no note
+});
+
+test("setBankHolidays: the latest gov.uk list replaces the built-in one", () => {
+  try {
+    setBankHolidays([{ date: "2026-11-20", title: "Test Day" }]);
+    assert.equal(isWorkingDay(new Date(2026, 10, 20)), false);
+    assert.equal(isWorkingDay(new Date(2026, 11, 25)), true); // not in this list
+    assert.equal(due("Friday"), "17:30, Mon 23 Nov (moved)");
+  } finally {
+    setBankHolidays(BUNDLED_BANK_HOLIDAYS);
+  }
+  assert.equal(isWorkingDay(new Date(2026, 11, 25)), false);
 });
 
 test("spec §7: past deadlines are flagged, not moved", () => {
