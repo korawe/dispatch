@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/*.test.ts"
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/*.test.ts",
+    "e2e": "node scripts/e2e/run-all.mjs",
+    "check:bank-holidays": "node --use-system-ca --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-bank-holidays.mjs"
   },
   "dependencies": {
     "next": "16.4.6",

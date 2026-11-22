@@ -5,7 +5,7 @@ Turn a quick voice note into clear delegation emails. Single-user test app.
 - Spec: [DispatchSpec.md](DispatchSpec.md). This is the source of truth for what we're building and in which phase.
 - Stack: Next.js (installable web app) on Vercel. Supabase and login arrive in Phase 3 (spec decision 34). No AI for now (decision 33).
 
-## Current phase: 1 (capture → draft)
+## Where it's up to: Phases 1 (capture → draft) and 2 (people and clarifying) built; Phase 3 (actions list) next
 
 - `/` is the home page: a big New note button (Continue your note, when one is in progress), Add delegates, and a link to Admin. Every other screen has a Home button in its top bar.
 - `/admin` links to the Phase 0 tests, the look-and-feel options and the future features list (`/admin/features`). The shared list is kept in `src/app/admin/features/features.ts`; on an iPhone, a ＋ button adds features saved on that phone.
@@ -37,3 +37,20 @@ Environment variables (in `.env.local`, which is git-ignored, and in Vercel proj
 | `VAPID_PRIVATE_KEY` | Web push private key (secret) |
 
 Regenerate the push keys with `npx web-push generate-vapid-keys`. Regenerate the app icons from `scripts/icon.svg` with `node scripts/make-icons.mjs`.
+
+## Walk-through tests
+
+`npm run e2e` runs the app the way a person would, in a hidden Edge window at iPhone size, and checks every step. It starts the app on this laptop if it isn't running, and stops it afterwards. `npm run e2e -- https://dispatch-85on.vercel.app` runs the same checks against the live app; each test uses its own fresh browser, so nothing there changes. It takes about four minutes, and exits with an error if anything fails.
+
+| Test (`scripts/e2e/`) | What it checks |
+|---|---|
+| `note-typed.mjs` | A whole note typed: deadline said in passing, optional questions skipped, Change date, progress kept across a reload, CC, the finished emails |
+| `note-voice.mjs` | A whole note by voice with a pretend speech recogniser: "next"/"stop" (even said twice), Skip, a vague deadline, hands-free. Run twice: as a laptop, and as an iPhone, where the whole note must use **one** listening session |
+| `navigation.mjs` | Moving around by tapping, as screens are kept alive in the background: a delegate added on Delegates appears in New note at once; hands-free doesn't look on after leaving |
+| `home-and-admin.mjs` | Home page states, a Home button on every screen, Future features "+" on iPhone only |
+| `delegates.mjs` | Full delegate details, two Toms, teaching a misheard name, someone who's left, an old saved list |
+| `bank-holidays.mjs` | The latest gov.uk list is fetched and saved; Christmas Day is moved, with the reason |
+
+Screenshots from each run are in `test-results/e2e/<test>/` (not saved to GitHub). Run one test on its own with `node scripts/e2e/<test>.mjs http://localhost:3000` while `npm run dev` is running. Two tools in the same folder: `screenshot.mjs` (full-page screenshots at any width, flagging sideways overflow) and `installable.mjs` (whether the browser can install Dispatch as an app). The tests use Edge, or Chrome if there's no Edge; set `E2E_BROWSER` to the path of another Chromium-based browser.
+
+`npm run check:bank-holidays` compares the built-in bank holiday list with gov.uk's. Run it when gov.uk publishes another year.
