@@ -39,6 +39,7 @@ interface Recognition {
   interimResults: boolean;
   start(): void;
   stop(): void;
+  abort(): void;
   onresult: ((e: { results: RecognitionResultList }) => void) | null;
   onerror: ((e: { error: string }) => void) | null;
   onend: (() => void) | null;
@@ -354,16 +355,55 @@ type ListenOptions = {
   onEvent?: (e: string) => void;
   /** Called once the mic is actually listening, so the screen can say "speak now". */
   onListening?: () => void;
-  /** Stop listening after this long with no new words (the iPhone doesn't stop by itself). */
+  /** End the turn after this long with no new words. */
   silenceMs?: number;
+  /**
+   * How a turn ends once you've paused: "stop" (Dispatch calls stop(), the original way), "abort"
+   * (Dispatch calls abort()), or "iphone" (Dispatch waits for the iPhone to end it, and only aborts
+   * if it hasn't after 6 seconds). With no words at all, "stop" stops and the others abort.
+   */
+  endWith?: TurnEnd;
 };
+
+type TurnEnd = "iphone" | "abort" | "stop";
 
 type ListenResult = {
   text: string;
   error?: string;
   /** Short names of the recogniser events that fired before the turn ended, in order. */
   events: string[];
+  /** Who ended the turn: the iPhone, or Dispatch by stop() or abort(). */
+  endedBy: string;
+  /** Milliseconds from start() to the "mic started" event. Broken sessions have started almost instantly. */
+  startDelay?: number;
 };
+
+// When the mic was last used, kept across app restarts, to measure how long the iPhone takes to recover.
+const LAST_MIC_KEY = "dispatch-spike-last-mic";
+type LastMic = { at: number; endedBy: string; heard: boolean };
+
+function rememberMicUse(endedBy: string, heard: boolean) {
+  try {
+    window.localStorage.setItem(LAST_MIC_KEY, JSON.stringify({ at: Date.now(), endedBy, heard } satisfies LastMic));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+function readLastMic(): LastMic | null {
+  try {
+    return JSON.parse(window.localStorage.getItem(LAST_MIC_KEY) ?? "null") as LastMic | null;
+  } catch {
+    return null;
+  }
+}
+
+function describeLastMic(last: LastMic | null, now = Date.now()) {
+  if (!last) return "none recorded";
+  const secs = Math.max(0, Math.round((now - last.at) / 1000));
+  const ago = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`;
+  return `${ago} ago, ended by ${last.endedBy}, ${last.heard ? "heard words" : "heard nothing"}`;
+}
 
 // Plain-English labels for the recogniser's events, for the logs.
 const EVENT_LABELS: Record<string, string> = {
@@ -382,11 +422,17 @@ const EVENT_LABELS: Record<string, string> = {
  * Listens for one reply. `timeoutMs` is how long to wait for the first words; with
  * `silenceMs` set, it then stops once the words stop changing for that long.
  */
-function listenOnce(timeoutMs: number, { onPartial, onEvent, onListening, silenceMs }: ListenOptions = {}): Promise<ListenResult> {
+function listenOnce(
+  timeoutMs: number,
+  { onPartial, onEvent, onListening, silenceMs, endWith = "stop" }: ListenOptions = {}
+): Promise<ListenResult> {
   return new Promise((resolve) => {
     const Ctor = getRecognitionCtor();
-    if (!Ctor) return resolve({ text: "", error: "not supported", events: [] });
+    if (!Ctor) return resolve({ text: "", error: "not supported", events: [], endedBy: "not supported" });
     usage.listens++;
+    const startedAt = Date.now();
+    let startDelay: number | undefined;
+    let endedBy = "iPhone";
     const rec = new Ctor();
     rec.lang = "en-GB";
     rec.continuous = false;
@@ -407,27 +453,36 @@ function listenOnce(timeoutMs: number, { onPartial, onEvent, onListening, silenc
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ text: text.trim(), error, events });
+      rememberMicUse(endedBy, !!text.trim());
+      resolve({ text: text.trim(), error, events, endedBy, startDelay });
     };
-    const stopMic = (why?: string) => {
+    const stopMic = (why: string | undefined, how: "stop" | "abort") => {
       if (stopping) return;
       stopping = true;
+      endedBy = how === "abort" ? "Dispatch abort" : "Dispatch stop";
       if (why) onEvent?.(why);
       try {
-        rec.stop();
+        if (how === "abort") rec.abort();
+        else rec.stop();
       } catch {
         /* already stopped */
       }
       // Safety net in case the browser never fires "end".
       setTimeout(finish, 3000);
     };
+    // After words: stop or abort once you've paused, or give the iPhone 6 seconds to end the turn itself.
+    const afterWords = () =>
+      endWith === "iphone"
+        ? stopMic("the iPhone didn't end the turn within 6s of your last words; aborting", "abort")
+        : stopMic(`pause detected (${(silenceMs ?? 0) / 1000}s), ${endWith === "abort" ? "aborting" : "stopping"} mic`, endWith);
     const markListening = () => {
       if (listening) return;
       listening = true;
       onListening?.();
     };
     rec.onstart = () => {
-      log("start", EVENT_LABELS.start);
+      if (startDelay === undefined) startDelay = Date.now() - startedAt;
+      log("start", `${EVENT_LABELS.start} (${(startDelay / 1000).toFixed(1)}s after asking)`);
       markListening();
     };
     rec.onaudiostart = () => {
@@ -452,7 +507,7 @@ function listenOnce(timeoutMs: number, { onPartial, onEvent, onListening, silenc
       onPartial?.(text);
       if (silenceMs) {
         clearTimeout(timer);
-        timer = setTimeout(() => stopMic(`pause detected (${silenceMs / 1000}s), stopping mic`), silenceMs);
+        timer = setTimeout(afterWords, endWith === "iphone" ? 6000 : silenceMs);
       }
     };
     rec.onerror = (e) => {
@@ -463,11 +518,16 @@ function listenOnce(timeoutMs: number, { onPartial, onEvent, onListening, silenc
       log("end", EVENT_LABELS.end);
       finish();
     };
-    let timer = setTimeout(() => stopMic(silenceMs ? `no words after ${timeoutMs / 1000}s, stopping mic` : undefined), timeoutMs);
+    const noWordsHow = endWith === "stop" ? "stop" : "abort";
+    let timer = setTimeout(
+      () => stopMic(silenceMs ? `no words after ${timeoutMs / 1000}s, ${noWordsHow === "abort" ? "aborting" : "stopping"} mic` : undefined, noWordsHow),
+      timeoutMs
+    );
     try {
       rec.start();
     } catch (e) {
       error = String(e);
+      endedBy = "start failed";
       onEvent?.(`mic start() failed: ${error}`);
       finish();
     }
@@ -688,34 +748,6 @@ function silentWavUrl() {
   return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
 }
 
-// A short "your turn" beep (0.15s at 880 Hz) as a WAV file, generated in the browser. It plays as
-// ordinary media, which test 5c showed is heard even with silent mode on.
-function beepWavUrl() {
-  const rate = 16000;
-  const samples = Math.round(rate * 0.15);
-  const buf = new ArrayBuffer(44 + samples);
-  const v = new DataView(buf);
-  const str = (o: number, s: string) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-  str(0, "RIFF");
-  v.setUint32(4, 36 + samples, true);
-  str(8, "WAVE");
-  str(12, "fmt ");
-  v.setUint32(16, 16, true);
-  v.setUint16(20, 1, true); // PCM
-  v.setUint16(22, 1, true); // mono
-  v.setUint32(24, rate, true);
-  v.setUint32(28, rate, true);
-  v.setUint16(32, 1, true);
-  v.setUint16(34, 8, true);
-  str(36, "data");
-  v.setUint32(40, samples, true);
-  for (let i = 0; i < samples; i++) {
-    const fade = Math.min(1, i / 160, (samples - i) / 160); // 10ms fade in and out, so it doesn't click
-    v.setUint8(44 + i, Math.round(128 + 70 * fade * Math.sin((2 * Math.PI * 880 * i) / rate)));
-  }
-  return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
-}
-
 type AudioSessionNav = Navigator & { audioSession?: { type: string } };
 
 function ReadAloudSilentTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void }) {
@@ -840,19 +872,23 @@ function VoiceClipTest({ onInfo }: { onInfo: (t: string) => void }) {
   );
 }
 
-type HandsFreeMode = "spoken" | "screen" | "beep";
 type SavedRun = { summary: string; log: string[] };
+type Stage = "idle" | "speaking" | "starting" | "listening" | "micOff" | "done";
 
-const MODE_LABELS: Record<HandsFreeMode, string> = {
-  spoken: "spoken questions",
-  screen: "on-screen questions",
-  beep: "on-screen questions + beep",
+const END_LABELS: Record<TurnEnd, string> = {
+  iphone: "iPhone ends turns",
+  abort: "Dispatch aborts",
+  stop: "Dispatch stops (original)",
 };
-type Stage = "idle" | "speaking" | "showing" | "starting" | "listening" | "micOff" | "done";
 
-// Runs are saved on the phone so you can close and reopen the app between runs without losing them.
-const RUNS_KEY = "dispatch-spike-handsfree-runs";
+// The words a run asks for, one per turn.
+const WORDS = ["John", "Paul", "Mary", "Sarah", "stop"];
+
+// Runs are saved on the phone, so nothing is lost if the app is closed. New key for round 4, so
+// the list starts empty (rounds 1 to 3 are recorded in the spec).
+const RUNS_KEY = "dispatch-spike-handsfree-runs-v2";
 const MAX_RUNS = 8;
+const RECOVERY_SECS = 5 * 60;
 
 function loadRuns(): SavedRun[] {
   try {
@@ -874,7 +910,6 @@ function saveRuns(runs: SavedRun[]) {
 const STAGE_LABELS: Record<Stage, string> = {
   idle: "Ready",
   speaking: "🔊 Dispatch is speaking…",
-  showing: "Read the question…",
   starting: "Starting the mic… wait",
   listening: "🎙 Listening – speak now",
   micOff: "Mic off",
@@ -882,23 +917,34 @@ const STAGE_LABELS: Record<Stage, string> = {
 };
 
 /**
- * Hands-free loop: question → mic → reply, with no taps after Start. The modes split the main
- * suspect for "the mic hears no words": "spoken" asks out loud (as Dispatch will), "screen" shows
- * the same questions on screen for about as long as speaking them takes, so no sound plays, and
- * "beep" is "screen" plus a short beep before each listen (and one from the tap), to see whether
- * any sound just before the mic starts is enough or it has to be speech.
+ * Hands-free loop: Dispatch asks out loud for one word at a time and listens for it, with no taps after
+ * Start. Rounds 1 to 3 suggest that after Dispatch ends a turn with stop() once you've paused, the
+ * iPhone's recogniser hears nothing for a few minutes, even after reopening the app. Each run ends every
+ * turn one way, to see which ending keeps the next turn working.
  */
 function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void }) {
   const voices = useVoices(env.speechSynthesis);
   const [running, setRunning] = useState(false);
   const [stage, setStage] = useState<Stage>("idle");
   const [prompt, setPrompt] = useState("");
+  const [want, setWant] = useState("");
   const [heard, setHeard] = useState("");
   const [log, setLog] = useState<string[]>([]);
   const [runs, setRuns] = useState<SavedRun[]>(loadRuns);
   const [copied, setCopied] = useState(false);
+  const [lastMic, setLastMic] = useState<LastMic | null>(readLastMic);
+  const [now, setNow] = useState(() => Date.now());
 
-  async function run(mode: HandsFreeMode) {
+  // Refresh the "last mic use" line every few seconds, so you can see when the wait is up.
+  useEffect(() => {
+    const id = setInterval(() => {
+      setLastMic(readLastMic());
+      setNow(Date.now());
+    }, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  async function run(endWith: TurnEnd) {
     const t0 = Date.now();
     const lines: string[] = [];
     const add = (l: string) => {
@@ -915,55 +961,25 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
     const where = env.installed ? "app" : "Safari";
     const openedSecs = Math.round(performance.now() / 1000);
     const before = { listens: usage.listens, speaks: usage.speaks };
+    const lastAtStart = describeLastMic(readLastMic());
     add(
-      `setup: ${MODE_LABELS[mode]}, ${where}, app opened ${openedSecs}s ago, ` +
-        `earlier in this session: mic used ${before.listens}×, voice used ${before.speaks}×; ` +
+      `setup: ${END_LABELS[endWith]}, ${where}, app opened ${openedSecs}s ago, ` +
+        `earlier in this session: mic used ${before.listens}×, voice used ${before.speaks}×; last mic use: ${lastAtStart}; ` +
         `${voices.length} voices, audio session ${session()}, speaking=${synth.speaking}, pending=${synth.pending}`
     );
     // Clear anything an earlier test left stuck in the speech queue.
     synth.cancel();
     const voice = pickVoice(voices, "");
-
-    // Beep mode uses one media element. Its first play is straight from the tap, so iPhone lets it play again later.
-    const beep = mode === "beep" ? new Audio(beepWavUrl()) : null;
-    const playBeep = () =>
-      new Promise<void>((resolve) => {
-        if (!beep) return resolve();
-        let settled = false;
-        const done = (how: string) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          add(how);
-          resolve();
-        };
-        const timer = setTimeout(() => done("beep timed out"), 1500);
-        beep.onended = () => done("beep finished");
-        beep.currentTime = 0;
-        beep
-          .play()
-          .then(() => add("beep playing"))
-          .catch((e) => done(`beep BLOCKED: ${String(e)}`));
-      });
-
     const say = async (text: string) => {
       setPrompt(text);
-      if (mode === "spoken") {
-        setStage("speaking");
-        add(`Dispatch: ${text}`);
-        await speak(text, voice, add);
-      } else {
-        // Shown for roughly as long as saying it would take, so all modes keep the same rhythm.
-        setStage("showing");
-        add(`Dispatch (on screen): ${text}`);
-        await wait(500 + text.length * 55);
-        await playBeep();
-      }
+      setStage("speaking");
+      add(`Dispatch: ${text}`);
+      await speak(text, voice, add);
     };
 
-    // No await before this first sound: iPhone only allows it straight from the tap.
-    if (beep) void playBeep();
-    const firstQuestion = say("Who should own this action?");
+    // No await before this first say(): iPhone only allows speech straight from the tap.
+    setWant(WORDS[0]);
+    const firstQuestion = say(`Say ${WORDS[0]}.`);
 
     // Keep the screen on, so it can't lock part-way through a run.
     let lock: WakeLockSentinel | null = null;
@@ -981,21 +997,26 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
 
     await firstQuestion;
     const turns: ListenResult[] = [];
+    let w = 0;
     let misses = 0;
-    for (let round = 0; round < 8; round++) {
+    while (w < WORDS.length) {
+      setWant(WORDS[w]);
       await wait(400); // let the speaker hand over to the microphone
-      add(`--- turn ${round + 1} (audio session ${session()}) ---`);
+      add(`--- turn ${turns.length + 1}: asking for "${WORDS[w]}" (audio session ${session()}) ---`);
       setHeard("");
       setStage("starting");
       const r = await listenOnce(8000, {
         onEvent: add,
         silenceMs: 1500,
+        endWith,
         onListening: () => setStage("listening"),
         onPartial: setHeard,
       });
       turns.push(r);
       setStage("micOff");
-      add(`You: "${r.text}"${r.error ? ` (error: ${r.error})` : ""}`);
+      setLastMic(readLastMic());
+      setNow(Date.now());
+      add(`You: "${r.text}" (turn ended by ${r.endedBy}${r.error ? `, error: ${r.error}` : ""})`);
       await wait(300);
       if (!r.text) {
         misses++;
@@ -1003,38 +1024,38 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
           await say("I still didn't catch that. Stopping the test.");
           break;
         }
-        await say("Sorry, I didn't catch that. Please say it again.");
+        await say(`Sorry, I didn't catch that. Say ${WORDS[w]} again.`);
         continue;
       }
       misses = 0;
-      if (/\bstop\b/i.test(r.text)) {
-        await say("OK, stopping.");
-        break;
-      }
-      await say(`I heard ${r.text}. Say another name, or say stop.`);
+      w++;
+      if (w < WORDS.length) await say(`Got it. Now say ${WORDS[w]}.`);
+      else await say("That's all five. Test finished.");
     }
     document.removeEventListener("visibilitychange", onVisibility);
     await (lock as WakeLockSentinel | null)?.release().catch(() => {});
-    if (beep) URL.revokeObjectURL(beep.src);
     add("finished");
 
-    // One line per run, so runs are easy to compare: which turns heard words, and for the ones
-    // that didn't, which recogniser events fired.
+    // One line per run, so runs are easy to compare: for each turn, whether words came through, who
+    // ended it, and how long the mic took to start.
     const heardCount = turns.filter((t) => t.text).length;
     const perTurn = turns
-      .map((t, i) =>
-        t.text ? `${i + 1} ✓ "${t.text}"` : `${i + 1} ✗ [${t.events.join(", ") || "no events"}]${t.error ? ` error ${t.error}` : ""}`
-      )
+      .map((t, i) => {
+        const start = t.startDelay === undefined ? "mic never started" : `mic start ${(t.startDelay / 1000).toFixed(1)}s`;
+        return t.text
+          ? `${i + 1} ✓ "${t.text}" (${start}, ended by ${t.endedBy})`
+          : `${i + 1} ✗ (${start}) [${t.events.join(", ") || "no events"}]${t.error ? ` error ${t.error}` : ""}`;
+      })
       .join(" · ");
     const summary =
-      `${new Date().toLocaleString("en-GB")} · ${MODE_LABELS[mode]} · ${where} · ` +
-      `app opened ${openedSecs}s before · earlier mic ${before.listens}×, voice ${before.speaks}× · ` +
+      `${new Date().toLocaleString("en-GB")} · ${END_LABELS[endWith]} · ${where} · last mic use ${lastAtStart} · ` +
       `heard ${heardCount}/${turns.length}: ${perTurn}`;
     const next = [...loadRuns(), { summary, log: lines }].slice(-MAX_RUNS);
     saveRuns(next);
     setRuns(next);
     onInfo(next.map((r, i) => `Run ${i + 1}: ${r.summary}`).join(" || "));
     setStage("done");
+    setWant("");
     setRunning(false);
   }
 
@@ -1060,36 +1081,40 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
   if (!env.speechRecognition || !env.speechSynthesis)
     return <Status>Needs both speech recognition and read-aloud, and at least one isn&apos;t available here.</Status>;
   const listeningNow = stage === "listening";
+  const sinceLast = lastMic ? Math.round((now - lastMic.at) / 1000) : Infinity;
+  const rested = sinceLast >= RECOVERY_SECS;
   return (
     <>
       <p>
-        This finds out why the mic sometimes hears no words. Each run is saved, so you can close the app between runs.
-      </p>
-      <p>
-        In every run: tap Start once, then don&apos;t touch the screen. Each time the box below turns green and says{" "}
-        <b>Listening – speak now</b>, say <b>one</b> word, then wait for Dispatch to reply before the next. The words
-        are <b>John, Paul, Mary, Sarah</b>, then <b>stop</b>. If it says it didn&apos;t catch you, say the same word
-        again.
+        Each run asks you, out loud, for <b>one word at a time</b>. When the box turns green, say <b>only that word</b>,
+        then wait for Dispatch to ask for the next one. Each run tries a different way of ending your turn.
       </p>
       <ol className="list-decimal space-y-1 pl-5">
         <li>
-          Switch <b>silent mode off</b>, turn the volume up, and wait <b>two minutes</b> since your last run.
+          Switch <b>silent mode off</b> and turn the volume up. Wait until the line below says <b>5 minutes are up</b>.
+          You don&apos;t need to close the app between runs.
         </li>
         <li>
-          <b>Close Dispatch fully</b> (swipe it away), reopen it and come straight here. Tap{" "}
-          <b>Start: on-screen questions</b>. The questions appear in the box; nothing is spoken.
+          Tap <b>Start: iPhone ends turns</b>. Dispatch waits for the iPhone to decide you&apos;ve finished, so replies
+          may be a little slower.
         </li>
         <li>
-          Close and reopen Dispatch, then tap <b>Start: on-screen + beep</b>. Same, but it beeps when it&apos;s your
-          turn.
+          If that run got all five words, carry straight on. If it stopped early, wait for the 5 minutes again. Then tap{" "}
+          <b>Start: Dispatch aborts</b>.
         </li>
         <li>
-          Close and reopen Dispatch, then tap <b>Start: spoken questions</b>. Dispatch asks out loud.
+          Same rule again, then tap <b>Start: Dispatch stops</b>. This is the original way, which we think causes the
+          problem.
         </li>
         <li>
           Tap <b>Copy all runs</b> and paste them to Claude.
         </li>
       </ol>
+
+      <Status>
+        Last mic use: {describeLastMic(lastMic, now)}
+        {lastMic && (rested ? " · ✓ 5 minutes are up" : ` · wait ${Math.ceil((RECOVERY_SECS - sinceLast) / 60)} more min`)}
+      </Status>
 
       <div
         aria-live="polite"
@@ -1100,6 +1125,7 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
         }`}
       >
         {prompt && <p className="text-sm opacity-80">Dispatch: {prompt}</p>}
+        {want && running && <p className="text-2xl font-bold">Say: {want}</p>}
         <p className={`text-lg font-semibold ${listeningNow ? "text-emerald-700 dark:text-emerald-300" : ""}`}>
           {STAGE_LABELS[stage]}
         </p>
@@ -1107,14 +1133,14 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => void run("screen")} disabled={running} className="btn-primary">
-          Start: on-screen questions
+        <button onClick={() => void run("iphone")} disabled={running} className="btn-primary">
+          Start: iPhone ends turns
         </button>
-        <button onClick={() => void run("beep")} disabled={running} className="btn-primary">
-          Start: on-screen + beep
+        <button onClick={() => void run("abort")} disabled={running} className="btn-primary">
+          Start: Dispatch aborts
         </button>
-        <button onClick={() => void run("spoken")} disabled={running} className="btn-primary">
-          Start: spoken questions
+        <button onClick={() => void run("stop")} disabled={running} className="btn-primary">
+          Start: Dispatch stops
         </button>
       </div>
       {runs.length > 0 && !running && (
