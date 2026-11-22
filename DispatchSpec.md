@@ -1,12 +1,14 @@
 # Dispatch: Product & Build Spec (MVP)
 
-*Version 0.3 · 22 Nov 2026 · Status: Phase 0 in progress; look and feel (decision 31) and hands-free (decision 32) decided*
+*Version 0.4 · 22 Nov 2026 · Status: Phase 0 nearly done (Siri and desktop tests to come); look and feel (31), hands-free (32), no AI for now (33) and the Phase 1 approach (34) decided*
 
 ---
 
 ## 1. Summary
 
 Dispatch turns a quick voice note into a clear delegation email. You speak, and Dispatch works out who owns each action, what needs doing, why, what "done" looks like and when it's due. It asks about anything missing and drafts a short, friendly email for each person. You hand the email to Outlook to send, and Dispatch tracks the action until you mark it complete.
+
+**For now there's no AI (decision 33):** Dispatch asks you for each part of each action in turn and builds the emails from a fixed template, at no cost. Drafting from one free-form note is planned for later (§10.4).
 
 **Who it's for:** you (single user) in the MVP. Recipients are your EA and your direct reports.
 
@@ -24,8 +26,8 @@ The MVP is a personal test. It succeeds if:
 
 ### In the MVP
 - Voice capture on iPhone and desktop.
-- AI extraction of actions and drafting of emails (one email per person per note).
-- Clarifying questions when an owner or deadline is missing or unclear, plus a CC prompt.
+- Guided capture: Dispatch asks for each action's owner, title, context, action, outcome and deadline, and builds one email per person per note from a template (no AI for now, decision 33).
+- Checks on names and deadlines (unknown or ambiguous person, vague, past or non-working-day date), plus a CC prompt.
 - Three ways to finish: **Read back** (spoken), **Review** (on screen) or **Just send**.
 - Corrections by voice or on-screen editing.
 - Hand-off by copy and paste: copy buttons for To, CC, subject and body, to paste into a new Outlook email.
@@ -41,6 +43,7 @@ The MVP is a personal test. It succeeds if:
 - Team-facing features. Direct reports only receive emails and never use Dispatch.
 - Reading replies or auto-closing actions from email.
 - Push notifications at the exact moment a deadline passes. You chose the summary and badge only.
+- AI drafting from one free-form note (planned; §10.4, decision 33).
 
 ## 4. People list
 
@@ -50,10 +53,10 @@ You set this up once in **Settings → People** and maintain it there.
 |---|---|
 | Name | As you'd say it, e.g. "Priya" |
 | Full name | Used in the greeting if needed |
-| Role | e.g. "EA", "Head of Ops". Gives the AI context |
+| Role | e.g. "EA", "Head of Ops". Shown in the people list; would give AI drafting context later |
 | Email | Required |
 | Also known as | Nicknames or alternative pronunciations, e.g. "Pree", to help speech recognition |
-| Is EA | Flag. No special routing in the MVP; it gives the AI context only |
+| Is EA | Flag. No special routing in the MVP |
 | Active | Hide people who've left without losing their history |
 
 Rules:
@@ -63,20 +66,27 @@ Rules:
 ## 5. Core flow
 
 ```
-Record → Transcribe → Draft → Clarify → Choose → (Read back | Review) → Hand off → Tracked
+Start → Capture each action → Check → CC → Choose → (Read back | Review) → Hand off → Tracked
 ```
 
-1. **Record.** Tap the big record button (or the home-screen icon, then tap) and speak. Tap again to stop. There's no fixed limit, but the guidance is under 2 minutes.
-2. **Transcribe.** The audio is turned into text (§10.3).
-3. **Draft.** The AI pulls out each action and groups actions by owner, giving one email per person per note. For each action it identifies the owner, context and intention, the action and expected outcome, and the deadline.
-4. **Clarify.** Dispatch asks one question at a time, by voice in hands-free mode or on screen:
-   - **Missing or unclear owner:** "Who should own *booking the offsite*?" Each action has exactly one owner. If you name two people, it asks who owns it, and the other person can go on CC.
-   - **Missing or vague deadline** ("soon", "ASAP", none given): "When is *booking the offsite* due?"
+1. **Start.** Tap the big mic button (or open Dispatch from the home-screen icon, then tap).
+2. **Capture each action.** Dispatch asks for one action at a time, out loud or on screen depending on Speak prompts (§9). Each spoken answer is turned into text (§10.3), and you can type any answer instead.
+   - **Who owns it?** One person from your people list (§4). Each action has exactly one owner; if you name two people, it asks which one owns it and suggests the other for CC.
+   - **Short title?** For the subject line, e.g. "Q3 board numbers".
+   - **Context and intention?** Why it matters.
+   - **What needs doing?**
+   - **What does done look like?**
+   - **When is it due?** Worked out by the rules in §7, e.g. "Friday" or "in 3 days".
+   - **Another action?** Yes starts the next one; no moves on.
+
+   Actions are grouped by owner, giving one email per person per note.
+3. **Check.** Dispatch only asks when something needs fixing:
    - **Unknown or ambiguous person:** see §4.
-   - **CC prompt, for each email:** "Anyone to copy in on Priya's email?" People you named as a reference are suggested as CCs. You confirm, add or say "no".
+   - **Vague deadline** ("soon", "ASAP", "when you can"): "When is *booking the offsite* due?" A deadline in the past or on a non-working day is handled as in §7.
+4. **CC, for each email:** "Anyone to copy in on Priya's email?" People suggested during capture are offered. You confirm, add or say "no".
 5. **Choose:** "Read it back, review on screen, or just send?"
-   - **Read back:** Dispatch speaks each email aloud. You correct it by voice ("change the deadline to Thursday", "add Tom on copy", "drop the second action"), tapping the mic button before each correction on iPhone (§9), or switch to screen editing. When you're done, it moves to hand-off.
-   - **Review:** the drafts are shown on screen with every field editable. You can also hold the mic button to dictate a correction.
+   - **Read back:** Dispatch speaks each email aloud. You correct it by voice by saying which part to change ("deadline", "owner", "action", "add a CC", "drop the second action"), then the new answer, tapping the mic button first on iPhone (§9). Or switch to screen editing. When you're done, it moves to hand-off.
+   - **Review:** the drafts are shown on screen with every field editable. You can also hold the mic button to dictate into a field.
    - **Just send:** goes straight to hand-off.
 6. **Hand off.** In the MVP, "send" means you copy the email into Outlook and send it yourself.
    - For each email, Dispatch shows **Copy** buttons for To, CC, subject and body. Each copied part gets a tick, so you can see what's done.
@@ -95,6 +105,7 @@ You can cancel at any point. Nothing is tracked until you hand an email off.
 - Every action has four parts: **Context & intention → Action → Expected outcome → Deadline.** The recipient is the owner, and the email says so plainly.
 - Deadlines always show the actual day and date, never just "Friday".
 - Plain text, so it survives the hand-off to Outlook. The labels below keep it scannable.
+- **For now (decision 33), it's a fixed template filled with your own answers,** lightly tidied (a capital letter at the start, a full stop at the end). The opening line is fixed: "Can you own this, please?" for one action, or "Two things for you to own:" for several. So how concise each email is depends on how you phrase your answers. The examples below show the style that AI drafting would aim for later.
 
 ### Subject line
 - One action: `<short title> – by <Day dd Mon>`, e.g. `Q3 board numbers – by Fri 21 Nov`
@@ -238,12 +249,15 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
   - Prompts and read-backs always show on screen as well, so nothing is lost on silent.
   - A cloud voice would play on silent (test 5c), so it remains an option later, at a small cost.
 
-### 10.4 AI drafting
-- **Model:** Claude Opus 5.5 (`claude-opus-5-5`), called through the official Anthropic TypeScript SDK from a server route.
+### 10.4 AI drafting (later; not in the MVP for now)
+**Decision 33: no AI for now.** Emails are built from a template (§5, §6), at no cost. If AI drafting is added later, this is the plan:
+
+- **Billing:** the Claude API is billed per use through a Claude Console account, separately from any claude.ai plan; usage is never charged against a plan's allowance. Team, Max and Ultra plans include monthly API credits that the plan's owner can link to one Console account, which would likely cover Dispatch. Spending is capped by the prepaid balance.
+- **Model:** start with Claude Haiku 5.5 (`claude-haiku-5-5`), as a setting, with Sonnet 5.5 or Opus 5.5 as step-ups if drafts aren't good enough. It's called through the official Anthropic TypeScript SDK from a server route.
 - **One call to draft each note.** The input is the transcript, your people list, today's date and time, the list of upcoming working days (so dates resolve correctly) and the email rules from §6. The output is **structured JSON** (enforced by a schema). For each email, it contains the recipient, CCs, subject and actions. Each action has a title, context, action, outcome and deadline, plus a list of anything missing or ambiguous that Dispatch needs to ask about.
 - **Corrections:** one call per voice correction. It takes the current draft and your instruction, and returns the updated draft in the same JSON shape.
 - **Code checks the AI's work:** the deadline rules (§7), whether a person exists on the list (§4) and the email format. The AI drafts; the code enforces the rules.
-- **Settings:** low or medium effort, since this is short extraction and drafting, tuned during testing. The fixed instructions and people list are cached to cut cost. A refusal fallback is enabled.
+- **Settings:** low or medium effort, since this is short extraction and drafting, tuned during testing. The fixed instructions and people list are cached to cut cost. If the model declines a note, Dispatch falls back to guided capture.
 - The AI never sends anything. It only produces drafts for you to check and hand off.
 
 ### 10.5 Notifications
@@ -272,7 +286,7 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
 
 - **AI policy:** your company has an AI policy, and you'll agree Dispatch with IT before using it beyond testing. Until then:
   - **Test with non-sensitive notes.** Avoid HR or performance matters, client names and personal data.
-  - The review should cover where speech-to-text and Claude process data, and what each provider keeps.
+  - The review should cover where speech-to-text (and Claude, if AI drafting is added) processes data, and what each provider keeps. With no AI for now (decision 33), your notes go only to the built-in speech recognition: Apple on iPhone, Microsoft in Edge.
 - **Single user:** only your email can sign in. All data is behind login and row-level security.
 - **Secrets:** API keys live only in Vercel and Supabase server settings, never in the app code or the browser.
 - **Hosting terms:** Vercel's free (Hobby) plan is meant for personal, non-commercial use. If Dispatch becomes a work tool, check the plan with IT at the same time as the AI policy.
@@ -281,20 +295,20 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
 
 | Item | Estimate |
 |---|---|
-| Claude Opus 5.5 | About 5–10p per note, including clarifying questions and a correction or two. At around 10 notes a working day, that's roughly **£5–£15 a month**. To be confirmed by measuring real usage in week 1 |
-| Speech-to-text | Priced per minute of audio; expected to be small at a few minutes a day. To be confirmed once the provider is chosen |
+| AI drafting | **£0 for now:** no AI (decision 33). If added later, at about 10 notes a working day (3 calls each) and Nov 2026 prices: Claude Haiku 5.5 about 50p a month, Sonnet 5.5 about £9, Opus 5.5 about £18. A Team plan's monthly API credits may cover it (§10.4). Measure real usage in the first week |
+| Speech-to-text | **£0:** built-in recognition (decision 30) |
 | Supabase, Vercel | Free tiers should cover a single user (see the hosting-terms note in §12) |
 
-Cost levers if needed: caching (already planned) and lower effort. Switching to a cheaper Claude model would be your call after looking at draft quality.
+For now, everything runs on free tiers.
 
 ## 14. Delivery phases
 
 | Phase | What's built | Done when |
 |---|---|---|
-| **0. Setup and spike** | Repo, Supabase (London), Vercel, login, installable app shell. Spike: iPhone mic in a home-screen app, built-in speech recognition vs a cloud API, spoken read-back, screen wake, Siri Shortcut, push and badge | Installed on iPhone and desktop. Each §9 limit confirmed or corrected in this spec |
-| **1. Capture → draft** | Record, transcribe, one AI call, drafts shown on screen, copy buttons | A note becomes correct drafts, ready to paste into Outlook, on both devices |
-| **2. People and clarifying** | People list, unknown or ambiguous name handling, missing owner and deadline questions, CC prompt, deadline rules and bank holidays | No draft can reach hand-off without an owner and a valid deadline |
-| **3. Actions list** | Open and Completed lists, by deadline and by person, complete, reopen, edit deadline, delete, undo after hand-off | Full lifecycle of an action works |
+| **0. Setup and spike** | Repo, Vercel, installable app shell (Supabase and login moved later, decision 34). Spike: iPhone mic in a home-screen app, built-in speech recognition vs a cloud API, spoken read-back, screen wake, Siri Shortcut, push and badge | Installed on iPhone and desktop. Each §9 limit confirmed or corrected in this spec |
+| **1. Capture → draft** | Guided capture (voice or typing, §5), the date rules in §7 apart from bank holidays, template drafts shown on screen (§6), copy buttons, and a simple people list (name and email). Everything is stored on the device (decision 34) | A note becomes correct drafts, ready to paste into Outlook, on both devices |
+| **2. People and clarifying** | The full people list (role, also known as, active), unknown or ambiguous name handling, missing owner and deadline questions, CC prompt, deadline rules and bank holidays | No draft can reach hand-off without an owner and a valid deadline |
+| **3. Actions list** | Supabase (London) and the email-code login, so your phone and PC share people and actions. Open and Completed lists, by deadline and by person, complete, reopen, edit deadline, delete, undo after hand-off | Full lifecycle of an action works |
 | **4. Voice flow** | Spoken prompts, read-back, voice corrections, read back / review / send choice, Speak prompts setting | A full note can be done by voice: with Speak prompts on, one tap per answer; with them off, no taps after the first |
 | **5. Reminders** | 09:00 weekday summary push, app badge, overdue banner | Overdue actions are surfaced correctly, including across a clock change |
 | **6. Two-week trial** | Daily use. Tune email format and prompts. Measure cost and time per note | Success measures in §2 reviewed |
@@ -335,16 +349,18 @@ Cost levers if needed: caching (already planned) and lower effort. Switching to 
 | 24 | Action is tracked at hand-off (first copy), with 10-second undo | You |
 | 25 | Transcripts deleted after hand-off or cancel (within 24 hours at most) | You |
 | 26 | Weekend or bank holiday deadline → next working day, flagged | You |
-| 27 | Claude Opus 5.5 for drafting; speech-to-text provider chosen in Phase 0 | You |
+| 27 | ~~Claude Opus 5.5 for drafting~~ (replaced by decision 33); speech-to-text provider chosen in Phase 0 | You |
 | 28 | Read-back and prompts use the free built-in voices; switch silent off to hear them | You (after Phase 0 tests) |
 | 29 | Speech-to-text must be free (zero cost) | You (after Phase 0 tests) |
 | 30 | Speech-to-text uses the built-in browser recognition, with keyboard dictation as the fallback | Follows from 29 and the re-test of test 4 |
 | 31 | Look and feel: "Pulse" (cobalt and sunshine yellow, navy outlines, solid drop shadows, Bricolage Grotesque and Outfit) with the speech bubble and sound wave from "Aurora" as the logo, in Pulse colours (a sunshine-yellow bubble with a cobalt wave on a cobalt tile, not Aurora's purple). Applied to the test page, home page and app icon first; the five options are on `/looks` | You (22 Nov) |
 | 32 | Hands-free on iPhone uses the Speak prompts setting. On: Dispatch speaks, and you tap once per answer. Off: the mic stays on and the questions show on screen, with no taps. Both are free and worked 5 of 5 in test 6. Spoken questions with no taps would need a paid speech service, so they aren't pursued | You (22 Nov, after test 6) |
+| 33 | No AI for now: Dispatch asks for each part of each action and builds the emails from a fixed template, at zero cost. AI drafting from a free-form note can come later, starting with Claude Haiku 5.5 (about 50p a month); it's billed separately from a claude.ai plan, though a Team plan's API credits may cover it (§10.4) | You (22 Nov) |
+| 34 | Phase 1 stores everything on the device and brings a simple people list (name and email) forward from Phase 2. Supabase and the login arrive in Phase 3, when your phone and PC need to share data | You (22 Nov) |
 
 ## 16. Open questions
 
 1. ~~Speech-to-text provider~~: built-in recognition (decision 30), subject to the AI policy review.
 2. Can a Siri Shortcut open the installed app directly? (Phase 0.)
 3. ~~Hands-free on iPhone~~: decided after test 6 (decision 32). Speak prompts on means a tap per answer; off means no taps, with the questions on screen.
-4. Which AI model drafts the emails, given the zero-cost wish? Decision 27 says Opus 5.5 (paid). The alternatives are Haiku 5.5 (much cheaper) or no paid AI at all (Claude's API isn't free).
+4. ~~Which AI model drafts the emails~~: no AI for now (decision 33). Haiku 5.5 is the starting point if AI drafting is added later.
