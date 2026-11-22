@@ -4,6 +4,7 @@
 // before we build on it. See DispatchSpec.md §9 and §14.
 
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { AuroraIcon } from "@/components/brand";
 
 /* ---------- small helpers ---------- */
 
@@ -191,12 +192,17 @@ function Spike() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-6 space-y-5">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">Dispatch · Phase 0 tests</h1>
-        <p className="text-sm opacity-80">
+    <main className="mx-auto w-full max-w-xl space-y-6 px-4 py-6">
+      <header className="space-y-3">
+        <div className="flex items-center gap-2.5">
+          <AuroraIcon size={40} outlined />
+          <span className="font-display text-[24px] leading-none font-extrabold tracking-tight">dispatch</span>
+        </div>
+        <h1 className="pt-2 font-display text-[34px] leading-none font-extrabold tracking-tight">Phase 0 tests</h1>
+        <p className="text-[15px] leading-relaxed text-dim">
           Work down the list on your iPhone, using the app opened from your Home Screen. After each test, tap how it went
-          (add a note if anything was odd). When you&apos;re done, tap <b>Copy results</b> and paste them to Claude.
+          (add a note if anything was odd). When you&apos;re done, tap <b className="text-ink">Copy results</b> and paste
+          them to Claude.
         </p>
         <button onClick={copyResults} className="btn-primary">
           {copiedAll ? "Copied ✓" : "Copy results"}
@@ -225,12 +231,16 @@ function Spike() {
       {card("siri", <SiriTest />)}
       {card("desktop", <DesktopTest />)}
 
-      <section className="space-y-2">
-        <h2 className="font-semibold">Results</h2>
+      <section className="space-y-3">
+        <h2 className="font-display text-[26px] leading-none font-extrabold tracking-tight">Results</h2>
         <button onClick={copyResults} className="btn-primary">
           {copiedAll ? "Copied ✓" : "Copy results"}
         </button>
-        <textarea readOnly value={resultsText()} className="w-full h-64 rounded-lg border border-slate-300 bg-white/60 p-2 font-mono text-xs dark:bg-slate-900 dark:border-slate-700" />
+        <textarea
+          readOnly
+          value={resultsText()}
+          className="h-64 w-full rounded-xl border-2 border-ink bg-white p-2 font-mono text-xs text-ink"
+        />
       </section>
     </main>
   );
@@ -247,19 +257,18 @@ function TestCard(props: {
 }) {
   const { title, options, verdict, onVerdict, children } = props;
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-3 dark:bg-slate-900 dark:border-slate-700">
-      <h2 className="font-semibold">{title}</h2>
-      <div className="space-y-2 text-sm">{children}</div>
+    <section className="space-y-3 rounded-[18px] border-2 border-ink bg-white p-4 shadow-pop">
+      <h2 className="font-display text-[19px] leading-tight font-extrabold tracking-tight">{title}</h2>
+      <div className="space-y-2 text-[15px] leading-relaxed">{children}</div>
       <div className="flex flex-wrap gap-2 pt-1">
         {options.map((o) => (
           <button
             key={o}
             onClick={() => onVerdict({ result: o })}
-            className={`rounded-full border px-3 py-1 text-sm ${
-              verdict.result === o ? "border-brand bg-brand text-white dark:text-slate-900" : "border-slate-300 dark:border-slate-600"
-            }`}
+            aria-pressed={verdict.result === o}
+            className={`rounded-full border-2 border-ink px-3 py-1 text-sm font-semibold ${verdict.result === o ? "bg-sun" : "bg-white"}`}
           >
-            {o}
+            {verdict.result === o ? `✓ ${o}` : o}
           </button>
         ))}
       </div>
@@ -267,14 +276,14 @@ function TestCard(props: {
         value={verdict.note ?? ""}
         onChange={(e) => onVerdict({ note: e.target.value })}
         placeholder="Note (optional)"
-        className="w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"
+        className="w-full rounded-xl border-2 border-ink bg-white px-3 py-2 text-base placeholder:text-dim"
       />
     </section>
   );
 }
 
 function Status({ children }: { children: ReactNode }) {
-  return <p className="rounded-md bg-slate-100 px-3 py-2 font-mono text-xs dark:bg-slate-800">{children}</p>;
+  return <p className="rounded-xl bg-periwinkle px-3 py-2 font-mono text-xs text-ink">{children}</p>;
 }
 
 /* ---------- individual tests ---------- */
@@ -709,7 +718,7 @@ function ReadAloudTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
   return (
     <>
       <p>Tap Play to hear a sample email. Try a couple of voices and note which sounds best.</p>
-      <select value={voiceName} onChange={(e) => setVoiceName(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-transparent px-2 py-2 dark:border-slate-600">
+      <select value={voiceName} onChange={(e) => setVoiceName(e.target.value)} className="w-full rounded-xl border-2 border-ink bg-white px-2 py-2 text-base">
         <option value="">Default British voice</option>
         {list.map((v) => (
           <option key={v.name} value={v.name}>
@@ -1086,7 +1095,7 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
   return (
     <>
       <p>
-        Each run asks you, out loud, for <b>one word at a time</b>. When the box turns green, say <b>only that word</b>,
+        Each run asks you, out loud, for <b>one word at a time</b>. When the box turns yellow, say <b>only that word</b>,
         then wait for Dispatch to ask for the next one. Each run tries a different way of ending your turn.
       </p>
       <ol className="list-decimal space-y-1 pl-5">
@@ -1118,15 +1127,11 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
 
       <div
         aria-live="polite"
-        className={`rounded-lg border-2 px-3 py-4 text-center ${
-          listeningNow
-            ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950"
-            : "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800"
-        }`}
+        className={`rounded-2xl border-2 border-ink px-3 py-4 text-center ${listeningNow ? "bg-sun shadow-pop" : "bg-periwinkle"}`}
       >
-        {prompt && <p className="text-sm opacity-80">Dispatch: {prompt}</p>}
-        {want && running && <p className="text-2xl font-bold">Say: {want}</p>}
-        <p className={`text-lg font-semibold ${listeningNow ? "text-emerald-700 dark:text-emerald-300" : ""}`}>
+        {prompt && <p className="text-sm text-dim">Dispatch: {prompt}</p>}
+        {want && running && <p className="font-display text-[28px] font-extrabold tracking-tight">Say: {want}</p>}
+        <p className="text-lg font-bold">
           {STAGE_LABELS[stage]}
         </p>
         {heard && <p className="font-mono text-sm">&ldquo;{heard}&rdquo;</p>}
@@ -1336,7 +1341,7 @@ function CopyTest() {
         <span className="block font-semibold">{SAMPLE_SUBJECT}</span>
         <span className="block whitespace-pre-wrap">{SAMPLE_BODY}</span>
       </Status>
-      <p className="opacity-70">Don&apos;t send it — just check it pastes well, then discard the draft.</p>
+      <p className="text-dim">Don&apos;t send it — just check it pastes well, then discard the draft.</p>
     </>
   );
 }

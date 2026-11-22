@@ -8,7 +8,8 @@ Turn a quick voice note into clear delegation emails. Single-user test app.
 ## Current phase: 0 (setup and iPhone tests)
 
 - `/` is a placeholder home page.
-- `/spike` is a checklist that tests the iPhone's limits: microphone, speech recognition, read-aloud, hands-free, notifications, badge, keep-awake, copy and Siri.
+- `/spike` is a checklist that tests the iPhone's limits: microphone, speech recognition, read-aloud, hands-free, notifications, badge, keep-awake, copy and Siri. It uses the chosen look (Pulse with the Aurora icon; spec decision 31).
+- `/looks` shows the five look-and-feel options that were considered (`/looks?look=pulse` opens one directly).
 - `/api/push-test` sends one test notification. It's for Phase 0 only and will be replaced by real reminders in Phase 5.
 
 ## Run locally

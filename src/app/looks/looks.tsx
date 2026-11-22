@@ -5,7 +5,8 @@
 // Your favourite and notes are saved on this device, and "Copy my feedback" puts them on the clipboard.
 
 import Link from "next/link";
-import { useEffect, useId, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { AuroraMark } from "@/components/brand";
 
 /* ---------- the five options ---------- */
 
@@ -380,24 +381,6 @@ function SignalMark({ size, color }: { size: number; color: string }) {
       <rect x="13" y="14" width="5" height="20" rx="2.5" />
       <rect x="21" y="9" width="5" height="30" rx="2.5" />
       <path d="M31 12l12 12-12 12" fill="none" stroke={color} strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-// A speech bubble with a sound wave, in a violet-to-peach gradient.
-function AuroraMark({ size, fill, wave }: { size: number; fill: string; wave: string }) {
-  const id = `aurora-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  return (
-    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden>
-      <defs>
-        <linearGradient id={id} x1="4" y1="4" x2="44" y2="44" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#7C5CFF" />
-          <stop offset="0.55" stopColor="#FF5CA8" />
-          <stop offset="1" stopColor="#FFB35C" />
-        </linearGradient>
-      </defs>
-      <path d="M24 4a20 20 0 1 1-10.4 37.1L5 44l2.9-8.6A20 20 0 0 1 24 4z" fill={fill === "gradient" ? `url(#${id})` : fill} />
-      <path d="M13 24c2.5-6 5-6 7.5 0s5 6 7.5 0 5-6 7.5 0" fill="none" stroke={wave} strokeWidth="3.2" strokeLinecap="round" />
     </svg>
   );
 }

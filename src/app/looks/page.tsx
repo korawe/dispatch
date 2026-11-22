@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Bricolage_Grotesque, DM_Sans, Instrument_Serif, Inter, Outfit, Plus_Jakarta_Sans, Sora, Space_Grotesk } from "next/font/google";
+import { DM_Sans, Instrument_Serif, Inter, Plus_Jakarta_Sans, Sora, Space_Grotesk } from "next/font/google";
+import { bricolage, outfit } from "../fonts";
 import { Looks } from "./looks";
 
 // Look & feel options, kept apart from the Phase 0 tests (/spike). Each option's fonts are exposed as CSS
@@ -19,8 +20,7 @@ const instrumentSerif = Instrument_Serif({
   preload: false,
 });
 const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans", display: "swap", preload: false });
-const bricolage = Bricolage_Grotesque({ subsets: ["latin"], variable: "--font-bricolage", display: "swap", preload: false });
-const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit", display: "swap", preload: false });
+// Bricolage Grotesque and Outfit (the chosen Pulse type) are shared with the rest of the app, from ../fonts.
 
 export const metadata: Metadata = {
   title: "Look & feel · Dispatch",
