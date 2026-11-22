@@ -72,16 +72,13 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-/* Pages in the Pulse look (light only for now). The body rule colours the strip behind the iPhone status bar. */
-body:has(.pulse) {
-  background: #f3f5ff;
-  color: #0d1440;
-  color-scheme: light;
-}
+/* The Pulse look, applied to every page by the "pulse" class on <body> (light only for now). The /looks
+   page sets its own colours on top. */
 .pulse {
   background: #f3f5ff;
   color: #0d1440;
   font-family: var(--font-outfit), system-ui, sans-serif;
+  color-scheme: light;
 }
 .pulse .btn-primary,
 .pulse .btn-secondary {

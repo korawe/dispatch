@@ -1,13 +1,11 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { bricolage, outfit } from "../fonts";
 
 export const metadata: Metadata = {
   title: "Phase 0 tests · Dispatch",
 };
 
-// The test page uses the chosen look: Pulse (fonts, colours, outlines; see globals.css), with the Aurora
-// speech-bubble logo in Pulse colours.
+// The Pulse look comes from the root layout, like every other page.
 export default function SpikeLayout({ children }: { children: ReactNode }) {
-  return <div className={`${bricolage.variable} ${outfit.variable} pulse flex flex-1 flex-col`}>{children}</div>;
+  return <div className="flex flex-1 flex-col">{children}</div>;
 }

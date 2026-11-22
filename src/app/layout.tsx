@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { bricolage, outfit } from "./fonts";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -23,7 +24,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#1E3A8A",
+  // Matches the Pulse page background, so browser and window bars blend in.
+  themeColor: "#F3F5FF",
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
@@ -33,9 +35,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en-GB"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${bricolage.variable} ${outfit.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      {/* "pulse" applies the chosen look to every page (spec decision 31; see globals.css). */}
+      <body className="pulse min-h-full flex flex-col">{children}</body>
     </html>
   );
 }

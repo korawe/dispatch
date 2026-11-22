@@ -8,8 +8,9 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/",
     scope: "/",
     display: "standalone",
-    background_color: "#F8FAFC",
-    theme_color: "#1E3A8A",
+    // Pulse page background (spec decision 31).
+    background_color: "#F3F5FF",
+    theme_color: "#F3F5FF",
     icons: [
       { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
       { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
