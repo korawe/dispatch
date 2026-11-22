@@ -50,8 +50,8 @@ function loadNote(): Note {
 const QUESTIONS: Record<TextStep, { ask: string; hint: string; multiline: boolean; back: Step; next: Step }> = {
   title: { ask: "Give it a short title", hint: "For the subject line, e.g. Q3 board numbers", multiline: false, back: "owner", next: "context" },
   context: {
-    ask: "What's the context?",
-    hint: "Why it matters, e.g. The board wants to see how we tracked against forecast",
+    ask: "Why does it matter?",
+    hint: "The background, for the email's Context line, e.g. The board wants to see how we tracked against forecast",
     multiline: true,
     back: "title",
     next: "action",
@@ -362,7 +362,10 @@ export function NoteFlow() {
     setHeard("");
     const session = new VoiceSession({
       keepOpen: false,
-      continuous: !isIPhone(), // the iPhone ends one answer well by itself (test 6, round 7)
+      // On iPhone: a single-phrase listen that the iPhone ends itself, exactly as in test 6 round 7 (5 of 5).
+      // Cutting its mic off after it has heard words stops it hearing anything for minutes.
+      continuous: !isIPhone(),
+      waitForBrowserEnd: isIPhone(),
       onListening: setListening,
       onWords: setHeard,
       onProblem: setVoiceMessage,

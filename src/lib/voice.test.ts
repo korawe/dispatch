@@ -78,6 +78,38 @@ test("one answer: if the browser ends early, what was heard is used", () => {
   mock.timers.reset();
 });
 
+test("iPhone one answer: waits for the iPhone to end the turn, and doesn't cut its mic off", () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { rec, hear } = fakeRecogniser();
+  const answers: string[] = [];
+  const s = new VoiceSession({ keepOpen: false, waitForBrowserEnd: true, create: () => rec as Recognition, onAnswer: (t) => answers.push(t) });
+  s.start();
+  rec.onstart?.();
+  s.openWindow();
+  hear("Priya");
+  mock.timers.tick(1500);
+  assert.deepEqual(answers, []); // no cutting in after 1.5s
+  rec.onend?.(); // the iPhone ends the turn itself
+  assert.deepEqual(answers, ["Priya"]);
+  assert.equal(rec.aborts, 0);
+  mock.timers.reset();
+});
+
+test("iPhone one answer: steps in after 6s if the iPhone never ends the turn", () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { rec, hear } = fakeRecogniser();
+  const answers: string[] = [];
+  const s = new VoiceSession({ keepOpen: false, waitForBrowserEnd: true, create: () => rec as Recognition, onAnswer: (t) => answers.push(t) });
+  s.start();
+  rec.onstart?.();
+  s.openWindow();
+  hear("Priya");
+  mock.timers.tick(6000);
+  assert.deepEqual(answers, ["Priya"]);
+  assert.equal(rec.aborts, 1);
+  mock.timers.reset();
+});
+
 test("hands-free: each answer is only the words after its question", () => {
   mock.timers.enable({ apis: ["setTimeout"] });
   const { s, hear, answers } = session(true);

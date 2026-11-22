@@ -3,7 +3,9 @@
 //   hears you. So "one answer" sessions start from the mic button and stop after one answer, and "hands-free"
 //   sessions start from one tap and stay open for the whole note, with nothing spoken.
 // - A turn ends after a pause (1.5s). Dispatch decides that itself, so Chrome can't cut you off at your first
-//   pause (test 4 on the laptop) and the iPhone can't keep listening to the cut-off.
+//   pause (test 4 on the laptop). The exception is the iPhone's one-answer sessions: there Dispatch lets the
+//   iPhone end the turn (waitForBrowserEnd), because cutting its mic off after it has heard words stops it
+//   hearing anything for minutes (test 6, and the first real use of voice on 22 Nov).
 
 type ResultList = ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }>;
 
@@ -73,6 +75,12 @@ export type VoiceOptions = {
   onProblem?: (message: string) => void;
   /** Keep listening across pauses (default true). The iPhone's one-answer sessions work best without. */
   continuous?: boolean;
+  /**
+   * Let the browser end each answer itself instead of cutting the mic off after a pause. On iPhone, cutting the
+   * mic off after it has heard words leaves it hearing nothing for minutes; letting it end the turn itself, with
+   * each listen started by a tap, worked 5 of 5 (test 6, round 7). Dispatch then only steps in after 6s.
+   */
+  waitForBrowserEnd?: boolean;
   /** How long a pause ends an answer. */
   silenceMs?: number;
   /** One-answer sessions give up after this long with no words. */
@@ -91,6 +99,7 @@ export class VoiceSession {
   private windowOpen = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private stopped = false;
+  private hasEnded = false; // the browser has ended the session (so there's nothing to cut off)
   private restarts = 0;
   private opts: VoiceOptions;
 
@@ -113,6 +122,7 @@ export class VoiceSession {
     rec.onstart = () => {
       this.generation++;
       this.segments = [];
+      this.hasEnded = false;
       this.opts.onListening?.(true);
     };
     rec.onresult = (e) => {
@@ -144,10 +154,12 @@ export class VoiceSession {
     this.stopped = true;
     this.windowOpen = false;
     this.clearTimer();
-    try {
-      this.rec?.abort();
-    } catch {
-      /* already stopped */
+    if (!this.hasEnded) {
+      try {
+        this.rec?.abort();
+      } catch {
+        /* already stopped */
+      }
     }
     this.opts.onListening?.(false);
   }
@@ -172,7 +184,8 @@ export class VoiceSession {
     this.opts.onWords?.(text);
     if (text) {
       this.clearTimer();
-      this.timer = setTimeout(() => this.commit(), this.opts.silenceMs ?? 1500);
+      const wait = this.opts.waitForBrowserEnd ? 6000 : (this.opts.silenceMs ?? 1500);
+      this.timer = setTimeout(() => this.commit(), wait);
     }
   }
 
@@ -199,6 +212,7 @@ export class VoiceSession {
   }
 
   private ended() {
+    this.hasEnded = true;
     this.opts.onListening?.(false);
     if (this.stopped) return;
     if (this.windowOpen && this.answer()) this.commit(); // use what was heard before it ended
