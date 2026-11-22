@@ -757,7 +757,11 @@ function silentWavUrl() {
   return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
 }
 
-type AudioSessionNav = Navigator & { audioSession?: { type: string } };
+// Safari's Audio Session API: lets a page say how it uses sound ("playback", "play-and-record", …) and
+// reports whether its sound is active or interrupted.
+type AudioSessionNav = Navigator & {
+  audioSession?: { type: string; state?: string; onstatechange?: (() => void) | null };
+};
 
 function ReadAloudSilentTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void }) {
   const voices = useVoices(env.speechSynthesis);
@@ -883,19 +887,20 @@ function VoiceClipTest({ onInfo }: { onInfo: (t: string) => void }) {
 
 type SavedRun = { summary: string; log: string[] };
 type Stage = "idle" | "speaking" | "showing" | "waiting" | "listening" | "done";
-type SessionMode = "screen" | "spoken";
+type SessionMode = "screen" | "spoken" | "spoken-pr";
 
 const MODE_LABELS: Record<SessionMode, string> = {
   screen: "one session, on-screen questions",
   spoken: "one session, spoken questions",
+  "spoken-pr": "one session, spoken questions, play-and-record",
 };
 
 // The words a run asks for, one per turn.
 const WORDS = ["John", "Paul", "Mary", "Sarah", "stop"];
 
-// Runs are saved on the phone, so nothing is lost if the app is closed. New key for round 5, so the list
-// starts empty (rounds 1 to 4 are recorded in the spec).
-const RUNS_KEY = "dispatch-spike-handsfree-runs-v3";
+// Runs are saved on the phone, so nothing is lost if the app is closed. New key for round 6, so the list
+// starts empty (rounds 1 to 5 are recorded in the spec).
+const RUNS_KEY = "dispatch-spike-handsfree-runs-v4";
 const MAX_RUNS = 8;
 const RECOVERY_SECS = 5 * 60;
 
@@ -933,6 +938,11 @@ const wordsOf = (s: string) => s.trim().split(/\s+/).filter(Boolean);
  * this keeps the mic on throughout (continuous recognition), and works out each answer from the words that
  * arrive after the question, ending a turn after a 1.5s pause. It also logs any words heard while Dispatch
  * is speaking, and whether iOS ends the session by itself (Dispatch restarts it, at most twice).
+ *
+ * Round 5: on-screen questions heard 5 of 5; spoken questions heard nothing once the voice played. Round 6
+ * adds "spoken-pr", which tells Safari up front that the page plays and records at the same time
+ * (audioSession.type = "play-and-record"), so the iPhone needn't switch its sound set-up when the voice
+ * starts. Every mode logs the audio session's state changes.
  */
 function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void }) {
   const voices = useVoices(env.speechSynthesis);
@@ -981,6 +991,24 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
     // Clear anything an earlier test left stuck in the speech queue.
     synth.cancel();
     const voice = pickVoice(voices, "");
+
+    // Watch the audio session, and in "spoken-pr" mode declare play-and-record before any sound or mic.
+    const audioSession = nav.audioSession;
+    if (audioSession) {
+      add(`audio session state at start: ${audioSession.state ?? "n/a"}`);
+      audioSession.onstatechange = () => add(`audio session state: ${audioSession.state ?? "n/a"} (type ${audioSession.type})`);
+    }
+    if (mode === "spoken-pr") {
+      if (!audioSession) add("audio session setting isn't available on this device");
+      else {
+        try {
+          audioSession.type = "play-and-record";
+          add(`audio session type set to: ${audioSession.type}`);
+        } catch (e) {
+          add(`couldn't set the audio session type: ${String(e)}`);
+        }
+      }
+    }
 
     // The one listening session.
     usage.listens++;
@@ -1035,7 +1063,7 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
 
     const say = async (text: string) => {
       setPrompt(text);
-      if (mode === "spoken") {
+      if (mode !== "screen") {
         setStage("speaking");
         add(`Dispatch: ${text}`);
         speakingNow = true;
@@ -1126,6 +1154,16 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
     setLastMic(readLastMic());
     setNow(Date.now());
     document.removeEventListener("visibilitychange", onVisibility);
+    if (audioSession) {
+      audioSession.onstatechange = null;
+      if (mode === "spoken-pr") {
+        try {
+          audioSession.type = "auto"; // put it back so the other tests behave normally
+        } catch {
+          /* ignore */
+        }
+      }
+    }
     await (lock as WakeLockSentinel | null)?.release().catch(() => {});
     add("finished");
 
@@ -1173,23 +1211,25 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
   return (
     <>
       <p>
-        This round keeps the mic on for the <b>whole conversation</b>, instead of starting it again for each answer.
-        Each run asks for <b>one word at a time</b>. When the box turns yellow, say <b>only that word</b>, then wait
-        for Dispatch to ask for the next one.
+        The mic stays on for the <b>whole conversation</b>. Last round, on-screen questions worked every time, but once
+        Dispatch&apos;s voice played, the mic heard nothing. This round tells the iPhone up front that Dispatch will
+        play and record at the same time. Each run asks for <b>one word at a time</b>: when the box turns yellow, say{" "}
+        <b>only that word</b>, then wait for the next.
       </p>
       <ol className="list-decimal space-y-1 pl-5">
         <li>
           Switch <b>silent mode off</b> and turn the volume up. Wait until the line below says <b>5 minutes are up</b>.
         </li>
         <li>
-          Tap <b>Start: on-screen questions</b>. The questions appear in the box; nothing is spoken.
+          Tap <b>Start: spoken, play-and-record</b>. Notice whether you can hear Dispatch, and whether it sounds
+          quieter than usual or comes from the earpiece.
         </li>
         <li>
-          Wait for the 5 minutes again, then tap <b>Start: spoken questions</b>. Notice whether Dispatch&apos;s voice
-          sounds quieter than usual, and add a note if it does.
+          If you have time, wait for the 5 minutes again, then tap <b>Start: spoken questions</b> (last round&apos;s
+          version), to check it fails again.
         </li>
         <li>
-          Tap <b>Copy all runs</b> and paste them to Claude.
+          Tap <b>Copy all runs</b> and paste them to Claude, with what you heard.
         </li>
       </ol>
 
@@ -1209,11 +1249,14 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => void run("screen")} disabled={running} className="btn-primary">
-          Start: on-screen questions
+        <button onClick={() => void run("spoken-pr")} disabled={running} className="btn-primary">
+          Start: spoken, play-and-record
         </button>
-        <button onClick={() => void run("spoken")} disabled={running} className="btn-primary">
+        <button onClick={() => void run("spoken")} disabled={running} className="btn-secondary">
           Start: spoken questions
+        </button>
+        <button onClick={() => void run("screen")} disabled={running} className="btn-secondary">
+          Start: on-screen questions
         </button>
       </div>
       {runs.length > 0 && !running && (
