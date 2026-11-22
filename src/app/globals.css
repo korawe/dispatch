@@ -109,3 +109,24 @@ body {
   opacity: 0.45;
   box-shadow: none;
 }
+
+/* The home page's New note button: a soft, slow pulse around it (still for anyone who prefers less motion). */
+@keyframes halo-pulse {
+  0%,
+  100% {
+    transform: scale(0.94);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 0.8;
+  }
+}
+.halo-pulse {
+  animation: halo-pulse 2.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .halo-pulse {
+    animation: none;
+  }
+}

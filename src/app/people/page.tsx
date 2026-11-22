@@ -3,7 +3,7 @@ import { ClientOnly } from "@/components/client-only";
 import { TopBar } from "@/components/top-bar";
 import { PeopleManager } from "./people-manager";
 
-export const metadata: Metadata = { title: "People · Dispatch" };
+export const metadata: Metadata = { title: "Delegates · Dispatch" };
 
 export default function PeoplePage() {
   return (

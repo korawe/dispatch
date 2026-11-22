@@ -7,10 +7,10 @@ Turn a quick voice note into clear delegation emails. Single-user test app.
 
 ## Current phase: 1 (capture → draft)
 
-- `/` is the home page: New note, People, and a link to Admin.
-- `/admin` links to the Phase 0 tests, the look-and-feel options and the future features list (`/admin/features`, kept in `src/app/admin/features/features.ts`).
+- `/` is the home page: a big New note button (Continue your note, when one is in progress), Add delegates, and a link to Admin. Every other screen has a Home button in its top bar.
+- `/admin` links to the Phase 0 tests, the look-and-feel options and the future features list (`/admin/features`). The shared list is kept in `src/app/admin/features/features.ts`; on an iPhone, a ＋ button adds features saved on that phone.
 - `/note` is a note, start to finish: Dispatch asks for each action's owner, title, context, action, outcome and deadline, then who to copy in, then shows the emails with copy buttons for Outlook. Answers can be typed or spoken (spec decision 32): **Answer by voice** listens for one answer; **Speak questions** reads each question aloud (you tap once per answer); **Go hands-free** keeps the mic on for the whole note, with the questions on screen. You end a spoken answer by saying "stop" or tapping Done (decision 35). Each part of an email has a copy icon in its top-right corner. Progress is saved on the device.
-- `/people` is the simple people list (name and email), saved on the device.
+- `/people` is Delegates: the simple people list (name and email), saved on the device.
 - The logic lives in `src/lib`: `dates.ts` (the deadline rules in spec §7), `email.ts` (the template in §6), `voice.ts` (listening and speaking; "stop" ends an answer), `voice-answers.ts` (yes/no, names, "no one", "back"), `people.ts`, `settings.ts` and `local.ts` (on-device storage).
 
 Phase 0 pages that are still around:

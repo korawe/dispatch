@@ -45,9 +45,9 @@ The MVP is a personal test. It succeeds if:
 - Push notifications at the exact moment a deadline passes. You chose the summary and badge only.
 - AI drafting from one free-form note (planned; §10.4, decision 33).
 
-## 4. People list
+## 4. Delegates (the people list)
 
-You set this up once in **Settings → People** and maintain it there.
+The app calls the people you delegate to **Delegates**. You set them up once under **Add delegates** on the home page and maintain them there.
 
 | Field | Notes |
 |---|---|

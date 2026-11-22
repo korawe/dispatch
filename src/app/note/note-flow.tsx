@@ -6,14 +6,15 @@
 // with Speak questions on, Dispatch reads each question aloud; with it off, "Go hands-free" keeps the mic on
 // for the whole note. Progress is saved on the device, so closing the app mid-note loses nothing.
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { TopBar } from "@/components/top-bar";
 import { formatDay, formatDeadline, parseDeadline, type Deadline } from "@/lib/dates";
 import { buildDraft, groupByOwner, tidyTitle, type CapturedAction, type EmailDraft } from "@/lib/email";
 import { readLocal, writeLocal } from "@/lib/local";
-import { loadPeople, makePerson, matchPeople, savePeople, type Person } from "@/lib/people";
+import { NOTE_KEY } from "@/lib/note-progress";
+import { makePerson, matchPeople, savePeople, type Person } from "@/lib/people";
+import { usePeople } from "@/lib/use-local";
 import { loadSettings, saveSettings, type Settings } from "@/lib/settings";
 import { canListen, canSpeak, isIPhone, speak, stopSpeaking, VoiceSession } from "@/lib/voice";
 import { isBack, isNoOne, splitNames, yesOrNo } from "@/lib/voice-answers";
@@ -36,7 +37,6 @@ type Note = {
   copied: string[]; // "<email index>:<part>"
 };
 
-const NOTE_KEY = "dispatch-note-v1";
 const emptyAnswers = (): Answers => ({ ownerId: "", title: "", context: "", action: "", outcome: "", deadlineText: "" });
 const emptyNote = (): Note => ({ actions: [], answers: emptyAnswers(), step: "owner", ccIndex: 0, cc: {}, emails: [], emailIndex: 0, copied: [] });
 
@@ -201,13 +201,16 @@ function DeadlinePreview({ deadline, pastOk, onPastOk }: { deadline: Deadline | 
 
 export function NoteFlow() {
   const router = useRouter();
-  const [people, setPeople] = useState<Person[]>(loadPeople);
+  // Always the latest list: a delegate added anywhere appears here at once, even if this screen was kept alive
+  // in the background (see lib/local.ts).
+  const people = usePeople();
   const [note, setNote] = useState<Note>(loadNote);
   const [deadline, setDeadline] = useState<Deadline | null>(() =>
     note.answers.deadlineText.trim() ? parseDeadline(note.answers.deadlineText) : null
   );
   const [pastOk, setPastOk] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState(""); // a name you said that isn't a delegate yet
 
   // Voice (decision 32).
   const [settings, setSettings] = useState<Settings>(loadSettings);
@@ -252,11 +255,16 @@ export function NoteFlow() {
     if (handsFree) sessionRef.current?.openWindow();
   }, [handsFree, questionKey]);
 
-  // Stop listening and speaking when leaving the screen.
+  // Stop listening and speaking when leaving the screen. Next.js keeps the screen alive in the background, so also
+  // reset what the voice controls show, or hands-free would still look on when you come back.
   useEffect(
     () => () => {
       sessionRef.current?.stop();
+      sessionRef.current = null;
       stopSpeaking();
+      setHandsFree(false);
+      setListening(false);
+      setHeard("");
     },
     []
   );
@@ -336,12 +344,22 @@ export function NoteFlow() {
       case "owner": {
         const found = matchPeople(ppl, text);
         if (found.length === 1) {
+          setAdding(false); // close any "Add … as a new delegate?" form from an earlier name
+          setNewName("");
           setNote((m) => ({ ...m, answers: { ...m.answers, ownerId: found[0].id }, step: "title" }));
           return null;
         }
-        return found.length > 1
-          ? `More than one person matches "${text}". Tap the one you mean.`
-          : `"${text}" isn't on your people list. Tap someone, or add them as someone new.`;
+        if (found.length > 1) return `More than one person matches "${text}". Tap the one you mean.`;
+        // Not a delegate yet: offer to add them, with the name filled in.
+        const name = text
+          .replace(/[.,!?]/g, "")
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((w) => w[0].toUpperCase() + w.slice(1))
+          .join(" ");
+        setNewName(name);
+        setAdding(true);
+        return `${name} isn't one of your delegates yet. Add them below, or say another name.`;
       }
       case "title":
       case "context":
@@ -511,7 +529,12 @@ export function NoteFlow() {
                 <Chip
                   key={p.id}
                   selected={a.ownerId === p.id}
-                  onClick={() => setNote((n) => ({ ...n, answers: { ...n.answers, ownerId: p.id }, step: "title" }))}
+                  onClick={() => {
+                    setAdding(false);
+                    setNewName("");
+                    setVoiceMessage("");
+                    setNote((n) => ({ ...n, answers: { ...n.answers, ownerId: p.id }, step: "title" }));
+                  }}
                 >
                   {p.name}
                 </Chip>
@@ -520,24 +543,42 @@ export function NoteFlow() {
           )}
           {adding || people.length === 0 ? (
             <div className="space-y-3 rounded-[18px] border-2 border-ink bg-white p-4 shadow-pop">
-              <p className="font-semibold">{people.length ? "Someone new" : "Add the first person you delegate to"}</p>
+              <p className="font-semibold">
+                {newName ? `Add ${newName} as a new delegate?` : people.length ? "New delegate" : "Add your first delegate"}
+              </p>
               <PersonForm
+                key={newName}
+                initial={newName ? { id: "", name: newName, email: "" } : undefined}
                 submitLabel="Add and choose"
                 onSubmit={(name, email) => {
                   const person = makePerson(name, email);
-                  const next = [...people, person];
-                  setPeople(next);
-                  savePeople(next);
+                  savePeople([...people, person]); // every screen updates from this
                   setAdding(false);
+                  setNewName("");
+                  setVoiceMessage("");
+                  setHeard("");
                   setNote((n) => ({ ...n, answers: { ...n.answers, ownerId: person.id }, step: "title" }));
                 }}
-                onCancel={people.length ? () => setAdding(false) : undefined}
+                onCancel={
+                  people.length
+                    ? () => {
+                        setAdding(false);
+                        setNewName("");
+                      }
+                    : undefined
+                }
               />
             </div>
           ) : (
             <Buttons>
-              <button onClick={() => setAdding(true)} className="btn-secondary">
-                ＋ Someone new
+              <button
+                onClick={() => {
+                  setNewName("");
+                  setAdding(true);
+                }}
+                className="btn-secondary"
+              >
+                ＋ New delegate
               </button>
               {note.actions.length > 0 && (
                 <button onClick={() => go("another")} className="btn-secondary">
@@ -663,7 +704,7 @@ export function NoteFlow() {
         <>
           <Question
             ask={`Anyone to copy in on ${personById(ownerId)?.name ?? "this"}'s email?`}
-            hint={others.length ? "Tap everyone to copy in." : "There's no one else on your people list yet."}
+            hint={others.length ? "Tap everyone to copy in." : "You have no other delegates yet."}
           />
           <div className="flex flex-wrap gap-2">
             {others.map((p) => (
@@ -761,14 +802,10 @@ export function NoteFlow() {
     <div className="space-y-6">
       <TopBar
         right={
-          hasProgress ? (
+          hasProgress && (
             <button onClick={startAgain} className="text-sm font-semibold text-dim underline">
               Start again
             </button>
-          ) : (
-            <Link href="/people" className="text-sm font-semibold text-dim underline">
-              People
-            </Link>
           )
         }
       />

@@ -14,13 +14,7 @@ const LINKS = [
 export default function AdminPage() {
   return (
     <main className="mx-auto w-full max-w-md space-y-6 px-4 py-6">
-      <TopBar
-        right={
-          <Link href="/" className="btn-secondary">
-            ← Home
-          </Link>
-        }
-      />
+      <TopBar />
       <h1 className="font-display text-[34px] leading-none font-extrabold tracking-tight">Admin</h1>
       <ul className="space-y-3">
         {LINKS.map((l) => (

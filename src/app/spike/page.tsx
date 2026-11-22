@@ -6,6 +6,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AppIcon } from "@/components/brand";
+import { HomeButton } from "@/components/top-bar";
 
 /* ---------- small helpers ---------- */
 
@@ -200,11 +201,12 @@ function Spike() {
             <AppIcon size={40} outlined />
             <span className="font-display text-[24px] leading-none font-extrabold tracking-tight">dispatch</span>
           </Link>
-          <Link href="/admin" className="btn-secondary">
-            ← Admin
-          </Link>
+          <HomeButton />
         </div>
-        <h1 className="pt-2 font-display text-[34px] leading-none font-extrabold tracking-tight">Phase 0 tests</h1>
+        <Link href="/admin" className="inline-block pt-2 text-sm font-semibold text-dim underline">
+          ← Admin
+        </Link>
+        <h1 className="font-display text-[34px] leading-none font-extrabold tracking-tight">Phase 0 tests</h1>
         <p className="text-[15px] leading-relaxed text-dim">
           Work down the list on your iPhone, using the app opened from your Home Screen. After each test, tap how it went
           (add a note if anything was odd). When you&apos;re done, tap <b className="text-ink">Copy results</b> and paste

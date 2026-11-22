@@ -9,6 +9,23 @@ const PEOPLE_KEY = "dispatch-people-v1";
 export const loadPeople = () => readLocal<Person[]>(PEOPLE_KEY, []);
 export const savePeople = (people: Person[]) => writeLocal(PEOPLE_KEY, people);
 
+// The same list each time until it changes, as useSyncExternalStore needs.
+let cachedRaw: string | null | undefined;
+let cachedPeople: Person[] = [];
+export function peopleSnapshot(): Person[] {
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(PEOPLE_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+  if (raw !== cachedRaw) {
+    cachedRaw = raw;
+    cachedPeople = loadPeople();
+  }
+  return cachedPeople;
+}
+
 export function makePerson(name: string, email: string): Person {
   return { id: newId(), name: name.trim().replace(/\s+/g, " "), email: email.trim() };
 }

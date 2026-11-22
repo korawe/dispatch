@@ -1,30 +1,30 @@
 import Link from "next/link";
 import { AppIcon } from "@/components/brand";
+import { NewNoteButton } from "./new-note-button";
 
-// Landing page, in the Pulse look like the rest of the app (spec decision 31).
+// The home page, in the Pulse look (spec decision 31). New note is the main thing to do; adding delegates comes
+// second; Admin is tucked away at the bottom.
 export default function Home() {
   return (
-    <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-8 px-6 py-10">
-      <div className="flex flex-col items-center text-center">
-        <AppIcon size={104} outlined />
-        <h1 className="mt-6 font-display text-[46px] leading-none font-extrabold tracking-tight">dispatch</h1>
-        <p className="mt-3 text-[17px] leading-relaxed text-dim">Turn a quick voice note into clear delegation emails.</p>
-      </div>
+    <main className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-between gap-10 px-6 py-8">
+      <header className="flex w-full flex-col items-center gap-2 text-center">
+        <span className="flex items-center gap-2.5">
+          <AppIcon size={40} outlined />
+          <span className="font-display text-[30px] leading-none font-extrabold tracking-tight">dispatch</span>
+        </span>
+        <p className="text-[15px] text-dim">Turn a quick voice note into clear delegation emails.</p>
+      </header>
 
-      <div className="flex flex-col gap-3">
-        <Link href="/note" className="btn-primary py-4 text-lg">
-          ＋ New note
-        </Link>
-        <Link href="/people" className="btn-secondary">
-          People
-        </Link>
-      </div>
+      <NewNoteButton />
 
-      <p className="text-center text-sm text-dim">
-        <Link href="/admin" className="underline">
+      <div className="flex w-full flex-col items-center gap-5">
+        <Link href="/people" className="btn-secondary w-full">
+          ＋ Add delegates
+        </Link>
+        <Link href="/admin" className="text-sm text-dim underline">
           Admin
         </Link>
-      </p>
+      </div>
     </main>
   );
 }

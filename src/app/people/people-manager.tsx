@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { isValidEmail, loadPeople, makePerson, savePeople, type Person } from "@/lib/people";
+import { isValidEmail, makePerson, savePeople, type Person } from "@/lib/people";
+import { usePeople } from "@/lib/use-local";
 
 export const inputClass = "w-full rounded-xl border-2 border-ink bg-white px-3 py-3 text-base placeholder:text-dim";
 
@@ -74,23 +75,24 @@ export function PersonForm({
   );
 }
 
-/** The people list (DispatchSpec.md §4, the Phase 1 version): name and email, saved on this device. */
+/**
+ * Delegates: the people list (DispatchSpec.md §4, the Phase 1 version), shown as "Delegates" in the app.
+ * Name and email, saved on this device.
+ */
 export function PeopleManager() {
-  const [people, setPeople] = useState<Person[]>(loadPeople);
+  // Always the latest list, including delegates added during a note (see lib/local.ts).
+  const people = usePeople();
   const [editing, setEditing] = useState<string | null>(null);
 
-  const update = (next: Person[]) => {
-    setPeople(next);
-    savePeople(next);
-  };
+  const update = (next: Person[]) => savePeople(next); // every screen updates from this
 
   return (
     <>
       <div className="space-y-2">
-        <h1 className="font-display text-[34px] leading-none font-extrabold tracking-tight">People</h1>
+        <h1 className="font-display text-[34px] leading-none font-extrabold tracking-tight">Delegates</h1>
         <p className="text-[15px] leading-relaxed text-dim">
-          Your EA and direct reports. Dispatch uses these names and email addresses for the To and CC lines. They&apos;re
-          saved on this device.
+          The people you delegate to: your EA and direct reports. Dispatch uses their names and email addresses for the To
+          and CC lines. They&apos;re saved on this device.
         </p>
       </div>
 
@@ -134,9 +136,9 @@ export function PeopleManager() {
 
       <section className="space-y-3 rounded-[18px] border-2 border-ink bg-white p-4 shadow-pop">
         <h2 className="font-display text-[20px] font-extrabold tracking-tight">
-          {people.length ? "Add someone" : "Add your first person"}
+          {people.length ? "Add a delegate" : "Add your first delegate"}
         </h2>
-        <PersonForm submitLabel="Add person" onSubmit={(name, email) => update([...people, makePerson(name, email)])} />
+        <PersonForm submitLabel="Add delegate" onSubmit={(name, email) => update([...people, makePerson(name, email)])} />
       </section>
 
       {people.length > 0 && (
