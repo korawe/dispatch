@@ -886,7 +886,7 @@ function VoiceClipTest({ onInfo }: { onInfo: (t: string) => void }) {
 }
 
 type SavedRun = { summary: string; log: string[] };
-type Stage = "idle" | "speaking" | "showing" | "waiting" | "listening" | "done";
+type Stage = "idle" | "speaking" | "showing" | "tap" | "waiting" | "listening" | "done";
 type SessionMode = "screen" | "spoken" | "spoken-pr";
 
 const MODE_LABELS: Record<SessionMode, string> = {
@@ -898,9 +898,9 @@ const MODE_LABELS: Record<SessionMode, string> = {
 // The words a run asks for, one per turn.
 const WORDS = ["John", "Paul", "Mary", "Sarah", "stop"];
 
-// Runs are saved on the phone, so nothing is lost if the app is closed. New key for round 6, so the list
-// starts empty (rounds 1 to 5 are recorded in the spec).
-const RUNS_KEY = "dispatch-spike-handsfree-runs-v4";
+// Runs are saved on the phone, so nothing is lost if the app is closed. New key for round 7, so the list
+// starts empty (rounds 1 to 6 are recorded in the spec).
+const RUNS_KEY = "dispatch-spike-handsfree-runs-v5";
 const MAX_RUNS = 8;
 const RECOVERY_SECS = 5 * 60;
 
@@ -925,12 +925,46 @@ const STAGE_LABELS: Record<Stage, string> = {
   idle: "Ready",
   speaking: "🔊 Dispatch is speaking…",
   showing: "Read the question…",
+  tap: "👆 Your turn: tap the button, then speak",
   waiting: "Starting the mic… wait",
   listening: "🎙 Listening – speak now",
   done: "Finished",
 };
 
 const wordsOf = (s: string) => s.trim().split(/\s+/).filter(Boolean);
+
+// Keeps the screen on during a run and logs if the app leaves the screen. Returns a function that undoes both.
+function keepAwake(env: Env, add: (l: string) => void) {
+  let lock: WakeLockSentinel | null = null;
+  if (env.wakeLock) {
+    navigator.wakeLock
+      .request("screen")
+      .then((l) => {
+        lock = l;
+        add("screen kept awake");
+      })
+      .catch((e) => add(`couldn't keep the screen awake: ${String(e)}`));
+  }
+  const onVisibility = () => add(document.visibilityState === "visible" ? "app back on screen" : "APP WENT OFF SCREEN");
+  document.addEventListener("visibilitychange", onVisibility);
+  return async () => {
+    document.removeEventListener("visibilitychange", onVisibility);
+    await (lock as WakeLockSentinel | null)?.release().catch(() => {});
+  };
+}
+
+// Loudest point of a recording between two times (ms from its start), as a percentage of full scale.
+async function measureRecording(blob: Blob, splitMs: number) {
+  const audio = await new OfflineAudioContext(1, 1, 44100).decodeAudioData(await blob.arrayBuffer());
+  const data = audio.getChannelData(0);
+  const index = (ms: number) => Math.min(data.length, Math.max(0, Math.round((ms / 1000) * audio.sampleRate)));
+  const peak = (fromMs: number, toMs: number) => {
+    let p = 0;
+    for (let i = index(fromMs); i < index(toMs); i++) p = Math.max(p, Math.abs(data[i]));
+    return Math.round(p * 100);
+  };
+  return { before: peak(0, splitMs), after: peak(splitMs + 300, audio.duration * 1000), seconds: audio.duration };
+}
 
 /**
  * Hands-free loop with ONE listening session for the whole conversation. Rounds 1 to 4 showed that after a
@@ -942,7 +976,12 @@ const wordsOf = (s: string) => s.trim().split(/\s+/).filter(Boolean);
  * Round 5: on-screen questions heard 5 of 5; spoken questions heard nothing once the voice played. Round 6
  * adds "spoken-pr", which tells Safari up front that the page plays and records at the same time
  * (audioSession.type = "play-and-record"), so the iPhone needn't switch its sound set-up when the voice
- * starts. Every mode logs the audio session's state changes.
+ * starts. Every mode logs the audio session's state changes. Round 6: play-and-record didn't help.
+ *
+ * Round 7 tries two ways round it. "Tap to answer": Dispatch asks out loud, and each listen starts from a tap
+ * (taps worked all day in test 4). "Recording check": records with the ordinary microphone, the way a voice
+ * memo or a cloud speech service would, while Dispatch speaks and after. It then measures how loud the
+ * recording is after the voice stops, to see whether that path survives the voice.
  */
 function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void }) {
   const voices = useVoices(env.speechSynthesis);
@@ -956,6 +995,9 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
   const [copied, setCopied] = useState(false);
   const [lastMic, setLastMic] = useState<LastMic | null>(readLastMic);
   const [now, setNow] = useState(() => Date.now());
+  const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
+  // In "tap to answer", the big button calls this, so the listen starts inside your tap.
+  const tapRef = useRef<(() => void) | null>(null);
 
   // Refresh the "last mic use" line every few seconds, so you can see when the wait is up.
   useEffect(() => {
@@ -1184,6 +1226,182 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
     setRunning(false);
   }
 
+  // Shared start and finish for the round 7 runs.
+  function beginRun(label: string) {
+    const t0 = Date.now();
+    const lines: string[] = [];
+    const add = (l: string) => {
+      lines.push(`${((Date.now() - t0) / 1000).toFixed(1)}s ${l}`);
+      setLog([...lines]);
+    };
+    setRunning(true);
+    setCopied(false);
+    setHeard("");
+    setRecordingUrl(null);
+    const where = env.installed ? "app" : "Safari";
+    const lastAtStart = describeLastMic(readLastMic());
+    add(
+      `setup: ${label}, ${where}, app opened ${Math.round(performance.now() / 1000)}s ago, ` +
+        `earlier in this session: mic used ${usage.listens}×, voice used ${usage.speaks}×; last mic use: ${lastAtStart}`
+    );
+    // Clear anything an earlier test left stuck in the speech queue.
+    window.speechSynthesis.cancel();
+    const voice = pickVoice(voices, "");
+    const say = async (text: string) => {
+      setPrompt(text);
+      setStage("speaking");
+      add(`Dispatch: ${text}`);
+      await speak(text, voice, add);
+    };
+    const finish = (result: string) => {
+      add("finished");
+      const summary = `${new Date().toLocaleString("en-GB")} · ${label} · ${where} · last mic use ${lastAtStart} · ${result}`;
+      const next = [...loadRuns(), { summary, log: lines }].slice(-MAX_RUNS);
+      saveRuns(next);
+      setRuns(next);
+      onInfo(next.map((r, i) => `Run ${i + 1}: ${r.summary}`).join(" || "));
+      setLastMic(readLastMic());
+      setNow(Date.now());
+      setStage("done");
+      setWant("");
+      setRunning(false);
+    };
+    return { add, say, finish };
+  }
+
+  // Round 7a: Dispatch asks out loud; every listen starts from your tap on the big button.
+  async function runTapToAnswer() {
+    const { add, say, finish } = beginRun("tap to answer");
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    setWant(WORDS[0]);
+    // No await before this first say(): iPhone only allows speech straight from the tap.
+    const firstQuestion = say(`Tap the button, then say ${WORDS[0]}.`);
+    const release = keepAwake(env, add);
+    await firstQuestion;
+
+    const turns: ListenResult[] = [];
+    let w = 0;
+    let misses = 0;
+    while (w < WORDS.length) {
+      setWant(WORDS[w]);
+      add(`--- turn ${turns.length + 1}: asking for "${WORDS[w]}", waiting for your tap ---`);
+      setHeard("");
+      setStage("tap");
+      const asked = Date.now();
+      const tapped = new Promise<ListenResult>((resolve) => {
+        tapRef.current = () => {
+          tapRef.current = null;
+          add(`you tapped after ${((Date.now() - asked) / 1000).toFixed(1)}s`);
+          setStage("waiting");
+          // Called inside the tap, so the listen starts from it.
+          resolve(
+            listenOnce(8000, {
+              onEvent: add,
+              silenceMs: 1500,
+              endWith: "iphone",
+              onListening: () => setStage("listening"),
+              onPartial: setHeard,
+            })
+          );
+        };
+      });
+      const r = await Promise.race([tapped, wait(60000).then(() => null)]);
+      if (!r) {
+        tapRef.current = null;
+        add("no tap within 60s, stopping");
+        break;
+      }
+      turns.push(r);
+      add(`You: "${r.text}" (turn ended by ${r.endedBy}${r.error ? `, error: ${r.error}` : ""})`);
+      await wait(300);
+      if (!r.text) {
+        misses++;
+        if (misses >= 2) {
+          await say("I still didn't catch that. Stopping the test.");
+          break;
+        }
+        await say(`Sorry, I didn't catch that. Tap, then say ${WORDS[w]} again.`);
+        continue;
+      }
+      misses = 0;
+      w++;
+      if (w < WORDS.length) await say(`Got it. Tap, then say ${WORDS[w]}.`);
+      else await say("That's all five. Test finished.");
+    }
+    await release();
+
+    const heardCount = turns.filter((t) => t.text).length;
+    const perTurn = turns
+      .map((t, i) => {
+        const start = t.startDelay === undefined ? "mic never started" : `mic start ${(t.startDelay / 1000).toFixed(1)}s`;
+        return t.text
+          ? `${i + 1} ✓ "${t.text}" (${start})`
+          : `${i + 1} ✗ (${start}) [${t.events.join(", ") || "no events"}]${t.error ? ` error ${t.error}` : ""}`;
+      })
+      .join(" · ");
+    finish(`heard ${heardCount}/${turns.length}: ${perTurn}`);
+  }
+
+  // Round 7b: records with the ordinary microphone while Dispatch speaks and for 5s after, then measures it.
+  async function runRecordingCheck() {
+    const { add, say, finish } = beginRun("recording check");
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    // From the tap: start the voice, then the recording, so it records while the voice plays (the failing case).
+    const voiceDone = say("Recording check. When I stop talking, say a short sentence.");
+    const release = keepAwake(env, add);
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      add(`couldn't use the microphone: ${String(e)}`);
+      await voiceDone;
+      await release();
+      finish(`couldn't use the microphone: ${String(e)}`);
+      return;
+    }
+    usage.listens++;
+    const mime = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find(
+      (m) => typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported(m)
+    );
+    const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data.size) chunks.push(e.data);
+    };
+    const stopped = new Promise<void>((resolve) => (recorder.onstop = () => resolve()));
+    const recordingStart = Date.now();
+    recorder.start();
+    add("recording started");
+    await voiceDone;
+    const voiceEnd = Date.now() - recordingStart;
+    add(`voice finished, ${(voiceEnd / 1000).toFixed(1)}s into the recording — your turn`);
+    setPrompt("Say a short sentence now.");
+    setStage("listening");
+    await wait(5000);
+    recorder.stop();
+    await stopped;
+    stream.getTracks().forEach((t) => t.stop());
+    await release();
+    const blob = new Blob(chunks, { type: recorder.mimeType });
+    add(`recording: ${(blob.size / 1024).toFixed(0)} KB, ${recorder.mimeType || "unknown format"}`);
+    setRecordingUrl(URL.createObjectURL(blob));
+
+    let result: string;
+    try {
+      const m = await measureRecording(blob, voiceEnd);
+      add(`loudest sound while Dispatch spoke: ${m.before}%; after it stopped: ${m.after}% (${m.seconds.toFixed(1)}s recorded)`);
+      // Speaking near the phone usually peaks well above 5%; silence stays near 0%.
+      result = `loudest after the voice: ${m.after}% (${m.after >= 5 ? "sound captured" : "near silence"}); during the voice: ${m.before}%`;
+      rememberMicUse("recording check", m.after >= 5);
+    } catch (e) {
+      add(`couldn't measure the recording: ${String(e)}`);
+      result = `recorded ${(blob.size / 1024).toFixed(0)} KB, couldn't measure it: ${String(e)}`;
+      rememberMicUse("recording check", blob.size > 0);
+    }
+    setPrompt("Play the recording below: can you hear yourself?");
+    finish(result);
+  }
+
   async function copyRuns() {
     const text = runs.map((r, i) => [`Run ${i + 1}: ${r.summary}`, ...r.log].join("\n")).join("\n\n");
     try {
@@ -1211,22 +1429,20 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
   return (
     <>
       <p>
-        The mic stays on for the <b>whole conversation</b>. Last round, on-screen questions worked every time, but once
-        Dispatch&apos;s voice played, the mic heard nothing. This round tells the iPhone up front that Dispatch will
-        play and record at the same time. Each run asks for <b>one word at a time</b>: when the box turns yellow, say{" "}
-        <b>only that word</b>, then wait for the next.
+        On iPhone, the built-in speech recognition stops hearing anything once Dispatch&apos;s voice plays (rounds 5
+        and 6). This round checks two ways round it.
       </p>
       <ol className="list-decimal space-y-1 pl-5">
         <li>
           Switch <b>silent mode off</b> and turn the volume up. Wait until the line below says <b>5 minutes are up</b>.
         </li>
         <li>
-          Tap <b>Start: spoken, play-and-record</b>. Notice whether you can hear Dispatch, and whether it sounds
-          quieter than usual or comes from the earpiece.
+          Tap <b>Start: tap to answer</b>. Dispatch asks for a word out loud. When the big <b>Tap, then say…</b> button
+          appears, tap it and say only that word. Do this for all five.
         </li>
         <li>
-          If you have time, wait for the 5 minutes again, then tap <b>Start: spoken questions</b> (last round&apos;s
-          version), to check it fails again.
+          Then tap <b>Start: recording check</b> (no need to wait). Dispatch speaks; when it stops and the box turns
+          yellow, say a short sentence. Afterwards, play the recording below it: can you hear yourself?
         </li>
         <li>
           Tap <b>Copy all runs</b> and paste them to Claude, with what you heard.
@@ -1245,18 +1461,24 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
         {prompt && <p className="text-sm text-dim">Dispatch: {prompt}</p>}
         {want && running && <p className="font-display text-[28px] font-extrabold tracking-tight">Say: {want}</p>}
         <p className="text-lg font-bold">{STAGE_LABELS[stage]}</p>
+        {stage === "tap" && (
+          <button onClick={() => tapRef.current?.()} className="btn-primary mt-3 w-full py-4 text-lg">
+            🎙 Tap, then say {want}
+          </button>
+        )}
         {heard && <p className="font-mono text-sm">&ldquo;{heard}&rdquo;</p>}
       </div>
+      {recordingUrl && <audio controls src={recordingUrl} className="w-full" />}
 
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => void run("spoken-pr")} disabled={running} className="btn-primary">
-          Start: spoken, play-and-record
+        <button onClick={() => void runTapToAnswer()} disabled={running} className="btn-primary">
+          Start: tap to answer
         </button>
-        <button onClick={() => void run("spoken")} disabled={running} className="btn-secondary">
-          Start: spoken questions
+        <button onClick={() => void runRecordingCheck()} disabled={running} className="btn-primary">
+          Start: recording check
         </button>
         <button onClick={() => void run("screen")} disabled={running} className="btn-secondary">
-          Start: on-screen questions
+          Start: on-screen questions (mic on)
         </button>
       </div>
       {runs.length > 0 && !running && (
