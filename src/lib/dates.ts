@@ -149,6 +149,60 @@ export function parseDeadline(input: string, now: Date = new Date()): Deadline {
   };
 }
 
+// Words that introduce a deadline in passing ("pull the numbers BY Friday"), and phrases that are deadlines on
+// their own. Dates without one of these ("the board meets on the 25th") aren't taken as the deadline.
+const DEADLINE_CUE = /\b(?:by|due|before|deadline(?:\s+(?:is|of))?|no later than|until)\s+/g;
+const DEADLINE_ON_ITS_OWN = /\b(?:end of (?:the |this |next )?(?:day|week)|eod|close of (?:play|business)|(?:in|within) (?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|a couple of) (?:working |business )?(?:days?|weeks?))\b/g;
+
+const timeOf = (d: Deadline) => ("at" in d ? d.at.getTime() : NaN);
+
+/**
+ * Finds a deadline mentioned in passing in your answers (decision 37), e.g. "pull the numbers by Friday" or
+ * "send it within 3 days". Returns the phrase as you said it ("by Friday"), which answer it's in, and its
+ * deadline; or null if there's none, or if the answers mention different deadlines (then Dispatch asks).
+ */
+export function findDeadlineIn(texts: string[], now: Date = new Date()): { phrase: string; index: number; deadline: Deadline } | null {
+  const found: { phrase: string; index: number; deadline: Deadline }[] = [];
+  texts.forEach((text, index) => {
+    const lower = text.toLowerCase().replace(/[’‘]/g, "'");
+    // The phrase is quoted back as you said it, so it's cut from the original (same positions, barring rare letters).
+    const original = lower.length === text.length ? text : lower;
+    for (const m of lower.matchAll(DEADLINE_CUE)) {
+      // The fewest words after the cue (up to 6, within the clause) that give the deadline: "by 25 November",
+      // not "by 25 November please"; "by tomorrow at 3pm", not "by tomorrow".
+      const start = m.index + m[0].length;
+      const clause = lower.slice(start).split(/[,;.!?()]| and | so | because /)[0];
+      const words = clause.trim().split(/\s+/).slice(0, 6);
+      const full = parseDeadline(words.join(" "), now);
+      if (full.kind !== "ok" && full.kind !== "past") continue;
+      let used = words.length;
+      while (used > 1 && timeOf(parseDeadline(words.slice(0, used - 1).join(" "), now)) === timeOf(full)) used--;
+      const end = start + (clause.match(new RegExp(`^\\s*\\S+(?:\\s+\\S+){${used - 1}}`))?.[0].length ?? 0);
+      found.push({ phrase: original.slice(m.index, end), index, deadline: full });
+    }
+    for (const m of lower.matchAll(DEADLINE_ON_ITS_OWN)) {
+      const d = parseDeadline(m[0].replace(/^within\b/, "in"), now); // the date rules read "in 3 days"
+      if (d.kind === "ok" || d.kind === "past") found.push({ phrase: original.slice(m.index, m.index + m[0].length), index, deadline: d });
+    }
+  });
+  if (!found.length) return null;
+  const first = timeOf(found[0].deadline);
+  return found.every((f) => timeOf(f.deadline) === first) ? found[0] : null;
+}
+
+/**
+ * An answer without the deadline phrase that was taken from it, for when that deadline is changed: otherwise the
+ * email would say "by Friday" in the Action line and Monday in the Deadline line.
+ */
+export function withoutPhrase(text: string, phrase: string) {
+  const i = text.indexOf(phrase);
+  if (i < 0) return text;
+  return (text.slice(0, i) + text.slice(i + phrase.length))
+    .replace(/\s+([,.;:!?])/g, "$1") // "numbers , flag" -> "numbers, flag"
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s,;:]+|[\s,;:]+$/g, "");
+}
+
 /** e.g. "Fri 21 Nov" (§6: always the actual day and date). */
 export function formatDay(d: Date) {
   return `${DAY_NAMES[d.getDay()]} ${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`;

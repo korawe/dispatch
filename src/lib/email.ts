@@ -1,6 +1,6 @@
 // Builds Dispatch's emails from guided capture (DispatchSpec.md §6, decision 33): a fixed template filled with
 // your own answers, lightly tidied. One email per owner per note.
-import { formatDay, formatDeadline } from "./dates.ts";
+import { formatDay, formatDeadline, parseDeadline } from "./dates.ts";
 
 export type CapturedAction = {
   ownerId: string;
@@ -43,6 +43,20 @@ export function tidyTitle(text: string) {
   return t ? t[0].toUpperCase() + t.slice(1) : t;
 }
 
+/**
+ * The action's title for the subject line: the title given, or (since decision 37 dropped the title question)
+ * the start of what needs doing, up to eight words, without a trailing deadline ("by Friday"), which the subject
+ * line already shows.
+ */
+export function titleFor(a: Pick<CapturedAction, "title" | "action">) {
+  if (a.title.trim()) return tidyTitle(a.title);
+  let clause = squash(a.action).split(/[,;:.!?]| [-–] /)[0] ?? "";
+  const cue = clause.search(/\s(?:by|due|before|until|no later than|within|in)\s/i);
+  if (cue > 0 && parseDeadline(clause.slice(cue).replace(/^\s*within\b/i, " in")).kind !== "unknown") clause = clause.slice(0, cue);
+  const words = clause.split(" ").filter(Boolean);
+  return tidyTitle(words.length > 8 ? `${words.slice(0, 8).join(" ")}…` : words.join(" "));
+}
+
 /** Groups actions by owner, keeping the order owners were first mentioned. */
 export function groupByOwner(actions: CapturedAction[]) {
   const groups = new Map<string, CapturedAction[]>();
@@ -53,7 +67,9 @@ export function groupByOwner(actions: CapturedAction[]) {
 export function buildDraft(owner: Recipient, actions: CapturedAction[], cc: Recipient[], signOff = SIGN_OFF): EmailDraft {
   const sorted = [...actions].sort((a, b) => a.deadline.localeCompare(b.deadline));
   const firstDue = formatDay(new Date(sorted[0].deadline));
-  const titles = sorted.map((a) => tidyTitle(a.title));
+  const titles = sorted.map(titleFor);
+  // "Why does it matter?" and "What does done look like?" are optional (decision 37): skipped ones are left out.
+  const optional = (label: string, text: string, indent = "") => (text.trim() ? [`${indent}${label}: ${tidy(text)}`] : []);
 
   const subject =
     sorted.length === 1
@@ -66,9 +82,9 @@ export function buildDraft(owner: Recipient, actions: CapturedAction[], cc: Reci
     lines.push(
       "Can you own this, please?",
       "",
-      `Context: ${tidy(a.context)}`,
+      ...optional("Context", a.context),
       `Action: ${tidy(a.action)}`,
-      `Outcome: ${tidy(a.outcome)}`,
+      ...optional("Outcome", a.outcome),
       `Deadline: ${formatDeadline(new Date(a.deadline))}`
     );
   } else {
@@ -77,9 +93,9 @@ export function buildDraft(owner: Recipient, actions: CapturedAction[], cc: Reci
       lines.push(
         "",
         `${i + 1}. ${titles[i]}`,
-        `   Context: ${tidy(a.context)}`,
+        ...optional("Context", a.context, "   "),
         `   Action: ${tidy(a.action)}`,
-        `   Outcome: ${tidy(a.outcome)}`,
+        ...optional("Outcome", a.outcome, "   "),
         `   Deadline: ${formatDeadline(new Date(a.deadline))}`
       );
     });

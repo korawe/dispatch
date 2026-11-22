@@ -1,7 +1,13 @@
 // Run with: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isBack, isNoOne, splitNames, yesOrNo } from "./voice-answers.ts";
+import { isBack, isNoOne, isSkip, splitNames, yesOrNo } from "./voice-answers.ts";
+
+test("skipping an optional question (decision 37)", () => {
+  for (const s of ["skip", "Skip.", "skip it", "pass", "nothing", "None", "no"]) assert.equal(isSkip(s), true, s);
+  for (const s of ["no one knows the numbers", "skip the intro and send the totals", "the board wants it"])
+    assert.equal(isSkip(s), false, s);
+});
 
 test("yes or no to 'Another action?'", () => {
   for (const yes of ["yes", "Yeah.", "yes please", "another one", "one more", "OK"]) assert.equal(yesOrNo(yes), "yes", yes);

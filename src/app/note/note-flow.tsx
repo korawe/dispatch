@@ -1,33 +1,43 @@
 "use client";
 
-// A note, start to finish (DispatchSpec.md §5, decision 33): Dispatch asks for each action's owner, title,
-// context, action, outcome and deadline; then who to copy in on each email; then shows the emails with copy
-// buttons for Outlook. Answers can be typed or spoken (decision 32): "Speak this answer" listens for one answer;
+// A note, start to finish (DispatchSpec.md §5, decisions 33 and 37): Dispatch asks for each action's owner, what
+// needs doing, why it matters and what done looks like (those two are optional), and when it's due, unless you've
+// already said; then who to copy in on each email; then shows the emails with copy buttons for Outlook. Answers can be typed or spoken (decision 32): "Speak this answer" listens for one answer;
 // with Read questions aloud on, Dispatch reads each question aloud; with it off, "Hands-free" keeps the mic on
 // for the whole note. Progress is saved on the device, so closing the app mid-note loses nothing.
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { TopBar } from "@/components/top-bar";
-import { formatDay, formatDeadline, parseDeadline, type Deadline } from "@/lib/dates";
-import { buildDraft, groupByOwner, tidyTitle, type CapturedAction, type EmailDraft } from "@/lib/email";
+import { END_OF_DAY, findDeadlineIn, formatDeadline, parseDeadline, withoutPhrase, type Deadline } from "@/lib/dates";
+import { buildDraft, groupByOwner, titleFor, type CapturedAction, type EmailDraft } from "@/lib/email";
 import { readLocal, writeLocal } from "@/lib/local";
 import { NOTE_KEY } from "@/lib/note-progress";
 import { makePerson, matchPeople, savePeople, type Person } from "@/lib/people";
 import { usePeople } from "@/lib/use-local";
 import { loadSettings, saveSettings, type Settings } from "@/lib/settings";
 import { canListen, canSpeak, isIPhone, speak, stopSpeaking, VoiceSession } from "@/lib/voice";
-import { isBack, isNoOne, splitNames, yesOrNo } from "@/lib/voice-answers";
+import { isBack, isNoOne, isSkip, splitNames, yesOrNo } from "@/lib/voice-answers";
 import { inputClass, PersonForm } from "../people/people-manager";
 
-type Step = "owner" | "title" | "context" | "action" | "outcome" | "deadline" | "another" | "cc" | "drafts";
-type TextStep = "title" | "context" | "action" | "outcome";
-const ACTION_STEPS: Step[] = ["owner", "title", "context", "action", "outcome", "deadline"];
+type Step = "owner" | "action" | "context" | "outcome" | "deadline" | "another" | "cc" | "drafts";
+type TextStep = "action" | "context" | "outcome";
+const STEPS: Step[] = ["owner", "action", "context", "outcome", "deadline", "another", "cc", "drafts"];
+const ACTION_STEPS: Step[] = ["owner", "action", "context", "outcome", "deadline"];
 
-type Answers = { ownerId: string; title: string; context: string; action: string; outcome: string; deadlineText: string };
+/** A deadline said in an answer (decision 37): the words ("by Friday") and which answer they're in. */
+type Said = { saidAs?: string; saidIn?: TextStep };
+const TEXT_STEPS: TextStep[] = ["action", "context", "outcome"];
+
+// title stays (always "" now) so notes saved before decision 37 still load; the subject uses the action instead.
+// saidAs/saidIn: a deadline in the past was said, and is being asked about.
+type Answers = { ownerId: string; title: string; context: string; action: string; outcome: string; deadlineText: string } & Said;
+
+/** A captured action, plus where its deadline came from when it was said in an answer (decision 37). */
+type NoteAction = CapturedAction & Said & { moved?: string };
 
 type Note = {
-  actions: CapturedAction[];
+  actions: NoteAction[];
   answers: Answers; // the action being captured
   step: Step;
   ccIndex: number; // which email's CC question
@@ -44,30 +54,46 @@ const emptyNote = (): Note => ({ actions: [], answers: emptyAnswers(), step: "ow
 function loadNote(): Note {
   const saved = readLocal<Partial<Note> | null>(NOTE_KEY, null);
   if (!saved || !Array.isArray(saved.actions) || !saved.answers || !Array.isArray(saved.emails)) return emptyNote();
-  return { ...emptyNote(), ...saved, answers: { ...emptyAnswers(), ...saved.answers } };
+  // A note saved at the old title question carries on at "What needs doing?".
+  const step = (saved.step as string) === "title" ? "action" : STEPS.includes(saved.step as Step) ? saved.step : "owner";
+  return { ...emptyNote(), ...saved, step: step as Step, answers: { ...emptyAnswers(), ...saved.answers } };
 }
 
-const QUESTIONS: Record<TextStep, { ask: string; hint: string; multiline: boolean; back: Step; next: Step }> = {
-  title: { ask: "Give it a short title", hint: "For the subject line, e.g. Q3 board numbers", multiline: false, back: "owner", next: "context" },
+// The order is decision 37's: what needs doing comes first (often with its deadline: "by Friday"), and the two
+// questions after it are optional.
+const QUESTIONS: Record<TextStep, { ask: string; hint: string; optional: boolean; back: Step; next: Step }> = {
+  action: {
+    ask: "What needs doing?",
+    hint: "Say when it's due too, if you know, e.g. Pull Q3 revenue and costs against forecast by Friday",
+    optional: false,
+    back: "owner",
+    next: "context",
+  },
   context: {
     ask: "Why does it matter?",
-    hint: "The background, for the email's Context line, e.g. The board wants to see how we tracked against forecast",
-    multiline: true,
-    back: "title",
-    next: "action",
+    hint: "Optional. The background, for the email's Context line, e.g. The board wants to see how we tracked against forecast",
+    optional: true,
+    back: "action",
+    next: "outcome",
   },
-  action: { ask: "What needs doing?", hint: "e.g. Pull Q3 revenue and costs against forecast", multiline: true, back: "context", next: "outcome" },
   outcome: {
     ask: "What does done look like?",
-    hint: "e.g. A one-page summary I can drop into the pack",
-    multiline: true,
-    back: "action",
+    hint: "Optional. e.g. A one-page summary I can drop into the pack",
+    optional: true,
+    back: "context",
     next: "deadline",
   },
 };
 
 // Where "back" (said or tapped) goes from each answer.
-const BACK: Partial<Record<Step, Step>> = { title: "owner", context: "title", action: "context", outcome: "action", deadline: "outcome" };
+const BACK: Partial<Record<Step, Step>> = { action: "owner", context: "action", outcome: "context", deadline: "outcome" };
+
+/** e.g. "Friday 20 November", or "3pm, Friday 20 November" when it isn't the usual 17:30: for reading aloud. */
+function spokenDeadline(at: Date) {
+  const day = at.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+  if (at.getHours() === END_OF_DAY.hour && at.getMinutes() === END_OF_DAY.minute) return day;
+  return `${at.toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit" })}, ${day}`;
+}
 
 /** What Dispatch says aloud for the current question, when Speak questions is on. */
 function questionFor(n: Note, people: Person[]): string {
@@ -75,16 +101,18 @@ function questionFor(n: Note, people: Person[]): string {
   switch (n.step) {
     case "owner":
       return n.actions.length ? "Who owns the next action?" : "Who owns this action?";
-    case "title":
-      return "Give it a short title.";
-    case "context":
     case "action":
+      return QUESTIONS.action.ask;
+    case "context":
     case "outcome":
-      return QUESTIONS[n.step].ask;
+      return `${QUESTIONS[n.step].ask} Or say skip.`;
     case "deadline":
       return "When is it due?";
-    case "another":
-      return "Another action?";
+    case "another": {
+      // Decision 37: a deadline taken from what you said is read back, so you know it was heard.
+      const last = n.actions.at(-1);
+      return last?.saidAs ? `Due ${spokenDeadline(new Date(last.deadline))}. Another action?` : "Another action?";
+    }
     case "cc":
       return `Anyone to copy in on ${name([...groupByOwner(n.actions).keys()][n.ccIndex])}'s email?`;
     case "drafts":
@@ -211,6 +239,8 @@ export function NoteFlow() {
   const [pastOk, setPastOk] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState(""); // a name you said that isn't a delegate yet
+  // Changing an added action's deadline, on the "Another action?" screen.
+  const [changing, setChanging] = useState<{ index: number; text: string; deadline: Deadline | null; pastOk: boolean } | null>(null);
 
   // Voice (decision 32).
   const [settings, setSettings] = useState<Settings>(loadSettings);
@@ -283,13 +313,25 @@ export function NoteFlow() {
     setPastOk(false);
   }
 
-  /** Adds the action being captured, with this deadline, and moves on to "Another action?". */
-  function addActionWith(d: Deadline) {
+  /**
+   * Adds the action being captured, with this deadline, and moves on to "Another action?". `ans` is given when
+   * the answers aren't saved yet (a spoken last answer); `said` when the deadline came from what you said.
+   */
+  function addActionWith(d: Deadline, ans?: Answers, said?: Said) {
     if (!("at" in d)) return;
     const deadlineIso = d.at.toISOString();
     setNote((n) => {
-      const { ownerId, title, context, action, outcome } = n.answers;
-      const captured: CapturedAction = { ownerId, title, context, action, outcome, deadline: deadlineIso };
+      const src = ans ?? n.answers;
+      const { ownerId, title, context, action, outcome } = src;
+      let captured: NoteAction = { ownerId, title, context, action, outcome, deadline: deadlineIso };
+      const from = said ?? { saidAs: src.saidAs, saidIn: src.saidIn };
+      if (from.saidAs && from.saidIn) {
+        const meant = parseDeadline(from.saidAs);
+        captured =
+          "at" in meant && meant.at.getTime() === d.at.getTime()
+            ? { ...captured, ...from, moved: d.kind === "ok" ? d.moved : undefined } // the deadline you said
+            : { ...captured, [from.saidIn]: withoutPhrase(captured[from.saidIn], from.saidAs) }; // you gave another
+      }
       return { ...n, actions: [...n.actions, captured], answers: emptyAnswers(), step: "another" };
     });
     setDeadline(null);
@@ -301,12 +343,60 @@ export function NoteFlow() {
     addActionWith(deadline);
   }
 
+  /**
+   * After the last answer (decision 37): if the answers already say when it's due ("by Friday"), the deadline
+   * question is skipped and the date is shown on the next screen, where it can be changed. If they don't, or
+   * they mention two different dates, it's asked. A date in the past is asked about, with what you said filled in.
+   */
+  function afterOutcome(ans: Answers) {
+    const found = findDeadlineIn(TEXT_STEPS.map((s) => ans[s]));
+    const said: Said = found ? { saidAs: found.phrase, saidIn: TEXT_STEPS[found.index] } : {};
+    if (found?.deadline.kind === "ok") {
+      addActionWith(found.deadline, ans, said);
+      return;
+    }
+    const deadlineText = found ? found.phrase : ans.deadlineText;
+    setNote((n) => ({ ...n, answers: { ...n.answers, outcome: ans.outcome, deadlineText, saidAs: said.saidAs, saidIn: said.saidIn }, step: "deadline" }));
+    setDeadline(found ? found.deadline : deadlineText.trim() ? parseDeadline(deadlineText) : null);
+    setPastOk(false);
+  }
+
+  /** Saves an answer to one of the three text questions (empty to skip an optional one) and moves on. */
+  function answerAndMoveOn(step: TextStep, text: string) {
+    if (step === "outcome") afterOutcome({ ...noteRef.current.answers, outcome: text });
+    else setNote((n) => ({ ...n, answers: { ...n.answers, [step]: text }, step: QUESTIONS[step].next }));
+  }
+
   function removeAction(index: number) {
-    if (!confirm(`Remove "${tidyTitle(note.actions[index].title)}"?`)) return;
+    if (!confirm(`Remove "${titleFor(note.actions[index])}"?`)) return;
+    setChanging(null);
     setNote((n) => {
       const actions = n.actions.filter((_, i) => i !== index);
       return { ...n, actions, step: actions.length ? n.step : "owner" };
     });
+  }
+
+  /** "Another action?" answered: yes goes to the next action's owner, no to copying people in. */
+  function anotherAction(yes: boolean) {
+    setChanging(null);
+    setNote((n) => (yes ? { ...n, step: "owner" } : { ...n, ccIndex: 0, step: "cc" }));
+  }
+
+  function saveChangedDeadline() {
+    const c = changing;
+    if (!c?.deadline || !("at" in c.deadline) || (c.deadline.kind === "past" && !c.pastOk)) return;
+    const deadlineIso = c.deadline.at.toISOString();
+    setNote((n) => ({
+      ...n,
+      actions: n.actions.map((act, i) => {
+        if (i !== c.index || act.deadline === deadlineIso) return act;
+        const changed: NoteAction = { ...act, deadline: deadlineIso, saidAs: undefined, saidIn: undefined, moved: undefined };
+        // The answer no longer says the old date ("by Friday"), or the email would contradict itself.
+        if (act.saidAs && act.saidIn) changed[act.saidIn] = withoutPhrase(act[act.saidIn], act.saidAs);
+        return changed;
+      }),
+    }));
+    setChanging(null);
   }
 
   function buildEmails(n: Note, ppl: Person[]): EmailDraft[] {
@@ -340,6 +430,11 @@ export function NoteFlow() {
     const n = noteRef.current;
     const ppl = peopleRef.current;
     const text = said.trim();
+    // The optional questions are skipped by saying "skip", or just "next" (decision 37).
+    if ((n.step === "context" || n.step === "outcome") && (!text || isSkip(text))) {
+      answerAndMoveOn(n.step, "");
+      return null;
+    }
     if (!text) return "I didn't hear anything. Try again, or type your answer.";
     const back = BACK[n.step];
     if (isBack(text) && back) {
@@ -352,7 +447,7 @@ export function NoteFlow() {
         if (found.length === 1) {
           setAdding(false); // close any "Add … as a new delegate?" form from an earlier name
           setNewName("");
-          setNote((m) => ({ ...m, answers: { ...m.answers, ownerId: found[0].id }, step: "title" }));
+          setNote((m) => ({ ...m, answers: { ...m.answers, ownerId: found[0].id }, step: "action" }));
           return null;
         }
         if (found.length > 1) return `More than one person matches "${text}". Tap the one you mean.`;
@@ -367,14 +462,11 @@ export function NoteFlow() {
         setAdding(true);
         return `${name} isn't one of your delegates yet. Add them below, or say another name.`;
       }
-      case "title":
-      case "context":
       case "action":
-      case "outcome": {
-        const step = n.step;
-        setNote((m) => ({ ...m, answers: { ...m.answers, [step]: text } as Answers, step: QUESTIONS[step].next }));
+      case "context":
+      case "outcome":
+        answerAndMoveOn(n.step, text);
         return null;
-      }
       case "deadline": {
         const d = parseDeadline(text);
         answer({ deadlineText: text });
@@ -390,9 +482,8 @@ export function NoteFlow() {
       }
       case "another": {
         const choice = yesOrNo(text);
-        if (choice === "yes") go("owner");
-        else if (choice === "no") setNote((m) => ({ ...m, ccIndex: 0, step: "cc" }));
-        else return "Say yes for another action, or no if that's everything.";
+        if (!choice) return "Say yes for another action, or no if that's everything.";
+        anotherAction(choice === "yes");
         return null;
       }
       case "cc": {
@@ -549,7 +640,7 @@ export function NoteFlow() {
 
   // Where you are, above each question.
   let progress = "";
-  if (ACTION_STEPS.includes(note.step)) progress = `Action ${note.actions.length + 1} · question ${ACTION_STEPS.indexOf(note.step) + 1} of 6`;
+  if (ACTION_STEPS.includes(note.step)) progress = `Action ${note.actions.length + 1} · question ${ACTION_STEPS.indexOf(note.step) + 1} of 5`;
   else if (note.step === "another") progress = `${note.actions.length} action${note.actions.length === 1 ? "" : "s"} so far`;
   else if (note.step === "cc") progress = `Copying people in · email ${note.ccIndex + 1} of ${ownerIds.length}`;
   else progress = `Email ${note.emailIndex + 1} of ${note.emails.length}`;
@@ -570,7 +661,7 @@ export function NoteFlow() {
                     setAdding(false);
                     setNewName("");
                     setVoiceMessage("");
-                    setNote((n) => ({ ...n, answers: { ...n.answers, ownerId: p.id }, step: "title" }));
+                    setNote((n) => ({ ...n, answers: { ...n.answers, ownerId: p.id }, step: "action" }));
                   }}
                 >
                   {p.name}
@@ -594,7 +685,7 @@ export function NoteFlow() {
                   setNewName("");
                   setVoiceMessage("");
                   setHeard("");
-                  setNote((n) => ({ ...n, answers: { ...n.answers, ownerId: person.id }, step: "title" }));
+                  setNote((n) => ({ ...n, answers: { ...n.answers, ownerId: person.id }, step: "action" }));
                 }}
                 onCancel={
                   people.length
@@ -628,30 +719,31 @@ export function NoteFlow() {
       );
       break;
 
-    case "title":
-    case "context":
     case "action":
+    case "context":
     case "outcome": {
       const step = note.step;
       const q = QUESTIONS[step];
       const value = a[step];
-      const props = {
-        value,
-        onChange: (e: { target: { value: string } }) => answer({ [step]: e.target.value } as Partial<Answers>),
-        placeholder: "Type, or tap the mic on your keyboard",
-        className: inputClass,
-      };
+      const filled = value.trim() !== "";
       body = (
         <>
           <p className="text-[15px]">
             For <b>{personById(a.ownerId)?.name ?? "?"}</b>
-            {step !== "title" && a.title && <> · {tidyTitle(a.title)}</>}
+            {step !== "action" && a.action.trim() && <> · {titleFor(a)}</>}
           </p>
           <Question ask={q.ask} hint={q.hint} />
-          {q.multiline ? <textarea rows={3} {...props} /> : <input {...props} />}
+          <textarea
+            rows={3}
+            value={value}
+            onChange={(e) => answer({ [step]: e.target.value } as Partial<Answers>)}
+            placeholder="Type, or tap the mic on your keyboard"
+            className={inputClass}
+          />
           <Buttons>
-            <button onClick={() => go(q.next)} disabled={!value.trim()} className="btn-primary">
-              Next
+            {/* An optional question with no answer shows Skip in place of Next (decision 37). */}
+            <button onClick={() => answerAndMoveOn(step, value)} disabled={!q.optional && !filled} className="btn-primary">
+              {q.optional && !filled ? "Skip" : "Next"}
             </button>
             <button onClick={() => go(q.back)} className="btn-secondary">
               Back
@@ -666,7 +758,7 @@ export function NoteFlow() {
       body = (
         <>
           <p className="text-[15px]">
-            For <b>{personById(a.ownerId)?.name ?? "?"}</b> · {tidyTitle(a.title)}
+            For <b>{personById(a.ownerId)?.name ?? "?"}</b> · {titleFor(a)}
           </p>
           <Question ask="When is it due?" hint="e.g. Friday, tomorrow at 3pm, in 3 days, 25 November. With no time, it's 17:30." />
           <input
@@ -702,24 +794,78 @@ export function NoteFlow() {
           <Question ask="Another action?" />
           <ul className="space-y-2">
             {note.actions.map((act, i) => (
-              <li key={i} className="flex items-center gap-3 rounded-[18px] border-2 border-ink bg-white p-3 shadow-pop">
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-semibold">{tidyTitle(act.title)}</span>
-                  <span className="block text-sm text-dim">
-                    {personById(act.ownerId)?.name ?? "?"} · {formatDay(new Date(act.deadline))}
+              <li key={i} className="space-y-2 rounded-[18px] border-2 border-ink bg-white p-3 shadow-pop">
+                <div className="flex items-start gap-3">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-semibold">{titleFor(act)}</span>
+                    <span className="block text-sm text-dim">
+                      {personById(act.ownerId)?.name ?? "?"} · Due {formatDeadline(new Date(act.deadline))}
+                    </span>
+                    {/* Decision 37: a deadline taken from what you said, shown so you can check it. */}
+                    {act.saidAs && (
+                      <span className="block text-sm text-dim">
+                        From what you said: &ldquo;{act.saidAs}&rdquo;{act.moved && `. ${act.moved}`}
+                      </span>
+                    )}
                   </span>
-                </span>
-                <button onClick={() => removeAction(i)} className="text-sm font-semibold text-dim underline">
-                  Remove
-                </button>
+                  <span className="flex shrink-0 flex-col items-end gap-1">
+                    {changing?.index !== i && (
+                      <button
+                        onClick={() => setChanging({ index: i, text: "", deadline: null, pastOk: false })}
+                        className="text-sm font-semibold text-dim underline"
+                      >
+                        Change date
+                      </button>
+                    )}
+                    <button onClick={() => removeAction(i)} className="text-sm font-semibold text-dim underline">
+                      Remove
+                    </button>
+                  </span>
+                </div>
+                {changing?.index === i && (
+                  <div className="space-y-2">
+                    <input
+                      autoFocus
+                      aria-label="New deadline"
+                      value={changing.text}
+                      onChange={(e) =>
+                        setChanging({
+                          index: i,
+                          text: e.target.value,
+                          deadline: e.target.value.trim() ? parseDeadline(e.target.value) : null,
+                          pastOk: false,
+                        })
+                      }
+                      placeholder="e.g. Monday, in 3 days, 25 November"
+                      className={inputClass}
+                    />
+                    <DeadlinePreview
+                      deadline={changing.deadline}
+                      pastOk={changing.pastOk}
+                      onPastOk={() => setChanging({ ...changing, pastOk: true })}
+                    />
+                    <Buttons>
+                      <button
+                        onClick={saveChangedDeadline}
+                        disabled={!(changing.deadline?.kind === "ok" || (changing.deadline?.kind === "past" && changing.pastOk))}
+                        className="btn-primary"
+                      >
+                        Save date
+                      </button>
+                      <button onClick={() => setChanging(null)} className="btn-secondary">
+                        Cancel
+                      </button>
+                    </Buttons>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
           <div className="flex flex-col gap-3">
-            <button onClick={() => go("owner")} className="btn-primary">
+            <button onClick={() => anotherAction(true)} className="btn-primary">
               Yes, add another
             </button>
-            <button onClick={() => setNote((n) => ({ ...n, ccIndex: 0, step: "cc" }))} className="btn-secondary">
+            <button onClick={() => anotherAction(false)} className="btn-secondary">
               No, that&apos;s everything
             </button>
           </div>

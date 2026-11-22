@@ -36,6 +36,14 @@ export function splitNames(said: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Skipping an optional question (decision 37): "skip", "pass", "nothing", "none", "no". Saying only "next" or
+ * "stop" skips too, since it arrives as an empty answer.
+ */
+export function isSkip(said: string) {
+  return /^(skip( (it|this|that))?|pass|nothing|none|no|n\/a|not needed|not really)$/.test(normalise(said).replace(/,/g, ""));
+}
+
 /** "Back" or "go back": return to the previous question. */
 export function isBack(said: string) {
   return /^(go )?back$/.test(normalise(said));

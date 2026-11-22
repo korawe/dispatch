@@ -1,7 +1,7 @@
 // Run with: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatDeadline, parseDeadline, type Deadline } from "./dates.ts";
+import { findDeadlineIn, formatDeadline, parseDeadline, withoutPhrase, type Deadline } from "./dates.ts";
 
 // Thursday 19 November 2026, 10:00.
 const NOW = new Date(2026, 10, 19, 10, 0);
@@ -80,6 +80,57 @@ test("spec §7: vague deadlines are asked about", () => {
   for (const vague of ["soon", "ASAP", "as soon as you can", "when you can", "next week", "no rush"]) {
     assert.equal(due(vague), "vague", vague);
   }
+});
+
+// Decision 37: a deadline already said in an answer means the deadline question is skipped.
+function spotted(...texts: string[]) {
+  const f = findDeadlineIn(texts, NOW);
+  if (!f) return null;
+  const d = f.deadline;
+  return d.kind === "ok" ? formatDeadline(d.at) : d.kind === "past" ? `past ${formatDeadline(d.at)}` : d.kind;
+}
+
+test("findDeadlineIn: deadlines said in passing", () => {
+  assert.equal(spotted("pull the Q3 numbers by Friday"), "17:30, Fri 20 Nov");
+  assert.equal(spotted("send it over by the end of next week"), "17:30, Fri 27 Nov");
+  assert.equal(spotted("I need this by 25 November please"), "17:30, Wed 25 Nov");
+  assert.equal(spotted("book a venue, due Monday"), "17:30, Mon 23 Nov");
+  assert.equal(spotted("get it done by tomorrow at 3pm"), "15:00, Fri 20 Nov");
+  assert.equal(spotted("do it within 3 days"), "17:30, Tue 24 Nov");
+  assert.equal(spotted("by EOD"), "17:30, Thu 19 Nov");
+  assert.equal(spotted("a summary", "the board wants it, so by Friday and then I'll review"), "17:30, Fri 20 Nov");
+});
+
+test("findDeadlineIn: dates that aren't deadlines aren't taken", () => {
+  assert.equal(spotted("the board meets on the 25th"), null);
+  assert.equal(spotted("reduce costs by 5%"), null);
+  assert.equal(spotted("flag variances by region"), null);
+  assert.equal(spotted("we sat down on Monday to plan it"), null);
+  assert.equal(spotted("pull the numbers"), null);
+});
+
+test("findDeadlineIn: the phrase is quoted as said, just the words that give the date, and which answer it's in", () => {
+  const phrase = (...texts: string[]) => {
+    const f = findDeadlineIn(texts, NOW);
+    return f && `${f.index}: ${f.phrase}`;
+  };
+  assert.equal(phrase("Pull the Q3 numbers by Friday, flag any variance"), "0: by Friday");
+  assert.equal(phrase("I need this by 25 November please"), "0: by 25 November");
+  assert.equal(phrase("Get it done by tomorrow at 3pm"), "0: by tomorrow at 3pm");
+  assert.equal(phrase("Send it by the end of next week"), "0: by the end of next week");
+  assert.equal(phrase("Book a venue", "it's for the offsite", "Within 3 days"), "2: Within 3 days");
+});
+
+test("withoutPhrase: a changed deadline's old phrase comes out of the answer", () => {
+  assert.equal(withoutPhrase("Pull the Q3 numbers by Friday, flag any variance", "by Friday"), "Pull the Q3 numbers, flag any variance");
+  assert.equal(withoutPhrase("I need this by 25 November please", "by 25 November"), "I need this please");
+  assert.equal(withoutPhrase("by Friday", "by Friday"), "");
+  assert.equal(withoutPhrase("nothing to take out", "by Friday"), "nothing to take out");
+});
+
+test("findDeadlineIn: two different deadlines means ask instead", () => {
+  assert.equal(spotted("draft by Friday", "final version by next Friday"), null);
+  assert.equal(spotted("by Friday", "really, by Friday"), "17:30, Fri 20 Nov");
 });
 
 test("things that aren't dates", () => {

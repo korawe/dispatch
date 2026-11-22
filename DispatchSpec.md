@@ -26,7 +26,7 @@ The MVP is a personal test. It succeeds if:
 
 ### In the MVP
 - Voice capture on iPhone and desktop.
-- Guided capture: Dispatch asks for each action's owner, title, context, action, outcome and deadline, and builds one email per person per note from a template (no AI for now, decision 33).
+- Guided capture: Dispatch asks for each action's owner, what needs doing, why it matters and what done looks like (both optional), and the deadline (unless you've already said it), and builds one email per person per note from a template (no AI for now, decisions 33 and 37).
 - Checks on names and deadlines (unknown or ambiguous person, vague, past or non-working-day date), plus a CC prompt.
 - Three ways to finish: **Read back** (spoken), **Review** (on screen) or **Just send**.
 - Corrections by voice or on-screen editing.
@@ -72,12 +72,11 @@ Start → Capture each action → Check → CC → Choose → (Read back | Revie
 1. **Start.** Tap the big mic button (or open Dispatch from the home-screen icon, then tap).
 2. **Capture each action.** Dispatch asks for one action at a time, out loud or on screen depending on Speak prompts (§9). Each spoken answer is turned into text (§10.3), and you can type any answer instead.
    - **Who owns it?** One person from your people list (§4). Each action has exactly one owner; if you name two people, it asks which one owns it and suggests the other for CC.
-   - **Short title?** For the subject line, e.g. "Q3 board numbers".
-   - **Context and intention?** Why it matters.
-   - **What needs doing?**
-   - **What does done look like?**
-   - **When is it due?** Worked out by the rules in §7, e.g. "Friday" or "in 3 days".
-   - **Another action?** Yes starts the next one; no moves on.
+   - **What needs doing?** You can say when it's due in the same breath, e.g. "Pull the Q3 numbers by Friday".
+   - **Why does it matter?** Optional: say "skip" or just "next", or tap Skip.
+   - **What does done look like?** Optional, as above.
+   - **When is it due?** Only asked if you haven't already said it in one of the answers above (decision 37). Worked out by the rules in §7, e.g. "Friday" or "in 3 days". If the answers mention two different dates, or a date in the past, it's asked, with what you said filled in.
+   - **Another action?** Yes starts the next one; no moves on. Each action so far is listed with its deadline. One taken from what you said is shown with your words ("From what you said: “by Friday”"), and read aloud if Read questions aloud is on. **Change date** corrects it; the old words are then taken out of your answer, so the email doesn't say Friday in one line and Monday in the next.
 
    Actions are grouped by owner, giving one email per person per note.
 3. **Check.** Dispatch only asks when something needs fixing:
@@ -102,7 +101,7 @@ You can cancel at any point. Nothing is tracked until you hand an email off.
 - Written in the first person, as you.
 - **Always ends with `Thanks, Killian`.**
 - **One email per person per note.** That person is the recipient; anyone else named is on CC. For a separate topic, record a separate note.
-- Every action has four parts: **Context & intention → Action → Expected outcome → Deadline.** The recipient is the owner, and the email says so plainly.
+- Every action has four parts: **Context & intention → Action → Expected outcome → Deadline.** The recipient is the owner, and the email says so plainly. Context and outcome are optional in guided capture (decision 37); a skipped one is left out of the email rather than shown empty.
 - Deadlines always show the actual day and date, never just "Friday".
 - Plain text, so it survives the hand-off to Outlook. The labels below keep it scannable.
 - **For now (decision 33), it's a fixed template filled with your own answers,** lightly tidied (a capital letter at the start, a full stop at the end). The opening line is fixed: "Can you own this, please?" for one action, or "Two things for you to own:" for several. So how concise each email is depends on how you phrase your answers. The examples below show the style that AI drafting would aim for later.
@@ -110,6 +109,7 @@ You can cancel at any point. Nothing is tracked until you hand an email off.
 ### Subject line
 - One action: `<short title> – by <Day dd Mon>`, e.g. `Q3 board numbers – by Fri 21 Nov`
 - Several actions: `<n> actions: <title 1>, <title 2>… – first due <Day dd Mon>`
+- With no title question (decision 37), the title is the start of what needs doing: up to its first comma or eight words, without a deadline phrase, e.g. "Pull the Q3 numbers by Friday, flag any variance" gives `Pull the Q3 numbers – by Fri 21 Nov`. AI drafting would write a better one later (§10.4). You can edit the subject before copying it.
 
 ### Example: one action
 
@@ -360,6 +360,7 @@ For now, everything runs on free tiers.
 | 34 | Phase 1 stores everything on the device and brings a simple people list (name and email) forward from Phase 2. Supabase and the login arrive in Phase 3, when your phone and PC need to share data | You (22 Nov) |
 | 35 | A spoken answer ends when you say "stop" or "next" (left out of the answer, even if said twice) or tap Done, not after a pause, so you can stop to think. "Next" was added on 22 Nov because it feels more natural in conversation. On iPhone, with Read questions aloud off, one listening session runs for the whole note, started by the first tap, because starting and stopping one per answer left it hearing nothing (test 6, and twice in real use on 22 Nov). With Read questions aloud on, each answer is a fresh listen that the iPhone ends at your pause (round 7), so there a pause ends the answer | You (22 Nov) |
 | 36 | Under each question, two voice buttons side by side: **Speak this answer** (just this one) and **Hands-free** (the mic stays on for the whole note), so you choose how to answer from the first question. The Speak prompts setting is shown as **Read questions aloud**, so it isn't confused with Speak this answer | You (22 Nov) |
+| 37 | A shorter capture: no title question (the subject uses the start of the action); **What needs doing?** comes straight after the owner; **Why does it matter?** and **What does done look like?** are optional (skip by voice or tap); **When is it due?** is only asked if no deadline was said in the answers, and one that was said is shown on the next screen, where it can be changed. Capture stays one question at a time, not one free-form answer (that's what AI drafting would bring, §10.4) | You (22 Nov) |
 
 ## 16. Open questions
 

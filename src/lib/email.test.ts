@@ -60,6 +60,22 @@ test("three or more titles: the subject lists two and trails off", () => {
   assert.match(d.subject, /^3 actions: One, Two… – first due /);
 });
 
+test("decision 37: no title asked, so the subject uses the start of the action, without its 'by Friday'", () => {
+  const a: CapturedAction = { ...q3, title: "", action: "pull the Q3 numbers by Friday, with variances flagged" };
+  assert.equal(buildDraft(priya, [a], []).subject, "Pull the Q3 numbers – by Fri 27 Nov");
+  const long = { ...q3, title: "", action: "book a venue for twelve people somewhere central in early December" };
+  assert.equal(buildDraft(priya, [long], []).subject, "Book a venue for twelve people somewhere central… – by Fri 27 Nov");
+  const byRegion = { ...q3, title: "", action: "flag variances by region" };
+  assert.equal(buildDraft(priya, [byRegion], []).subject, "Flag variances by region – by Fri 27 Nov");
+});
+
+test("decision 37: skipped context and outcome are left out of the email", () => {
+  const a: CapturedAction = { ...q3, context: "", outcome: "" };
+  const body = buildDraft(priya, [a], []).body;
+  assert.doesNotMatch(body, /Context:|Outcome:/);
+  assert.match(body, /Action: Pull revenue and costs, flag any variance over 5%\.\nDeadline: 17:30, Fri 27 Nov/);
+});
+
 test("tidy keeps existing punctuation", () => {
   assert.equal(tidy("  is it done?  "), "Is it done?");
   assert.equal(tidy("ship it"), "Ship it.");
