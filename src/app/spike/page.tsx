@@ -4,7 +4,7 @@
 // before we build on it. See DispatchSpec.md §9 and §14.
 
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { AuroraIcon } from "@/components/brand";
+import { AppIcon } from "@/components/brand";
 
 /* ---------- small helpers ---------- */
 
@@ -195,7 +195,7 @@ function Spike() {
     <main className="mx-auto w-full max-w-xl space-y-6 px-4 py-6">
       <header className="space-y-3">
         <div className="flex items-center gap-2.5">
-          <AuroraIcon size={40} outlined />
+          <AppIcon size={40} outlined />
           <span className="font-display text-[24px] leading-none font-extrabold tracking-tight">dispatch</span>
         </div>
         <h1 className="pt-2 font-display text-[34px] leading-none font-extrabold tracking-tight">Phase 0 tests</h1>

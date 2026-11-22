@@ -6,7 +6,8 @@ export const metadata: Metadata = {
   title: "Phase 0 tests · Dispatch",
 };
 
-// The test page uses the chosen look: Pulse (fonts, colours, outlines; see globals.css) with the Aurora icon.
+// The test page uses the chosen look: Pulse (fonts, colours, outlines; see globals.css), with the Aurora
+// speech-bubble logo in Pulse colours.
 export default function SpikeLayout({ children }: { children: ReactNode }) {
   return <div className={`${bricolage.variable} ${outfit.variable} pulse flex flex-1 flex-col`}>{children}</div>;
 }

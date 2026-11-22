@@ -19,7 +19,8 @@
   --font-body: var(--font-outfit);
 }
 
-/* The chosen look: Pulse (cobalt and sunshine yellow, navy outlines, solid drop shadows), with the Aurora icon. */
+/* The chosen look: Pulse (cobalt and sunshine yellow, navy outlines, solid drop shadows), with the Aurora
+   speech-bubble logo in Pulse colours (spec decision 31). */
 @theme {
   --color-ink: #0d1440;
   --color-dim: #4f5885;

@@ -338,7 +338,7 @@ Cost levers if needed: caching (already planned) and lower effort. Switching to 
 | 28 | Read-back and prompts use the free built-in voices; switch silent off to hear them | You (after Phase 0 tests) |
 | 29 | Speech-to-text must be free (zero cost) | You (after Phase 0 tests) |
 | 30 | Speech-to-text uses the built-in browser recognition, with keyboard dictation as the fallback | Follows from 29 and the re-test of test 4 |
-| 31 | Look and feel: "Pulse" (cobalt and sunshine yellow, navy outlines, solid drop shadows, Bricolage Grotesque and Outfit) with the "Aurora" icon (gradient speech bubble with a sound wave). Applied to the test page first; the five options are on `/looks` | You (22 Nov) |
+| 31 | Look and feel: "Pulse" (cobalt and sunshine yellow, navy outlines, solid drop shadows, Bricolage Grotesque and Outfit) with the speech bubble and sound wave from "Aurora" as the logo, in Pulse colours (a sunshine-yellow bubble with a cobalt wave on a cobalt tile, not Aurora's purple). Applied to the test page, home page and app icon first; the five options are on `/looks` | You (22 Nov) |
 
 ## 16. Open questions
 
