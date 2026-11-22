@@ -2,8 +2,8 @@
 // - On iPhone the mic must be started by a tap, and once Dispatch's voice has played, only a tap-started listen
 //   hears you. So "one answer" sessions start from the mic button, and "hands-free" sessions start from one tap
 //   and stay open for the whole note, with nothing spoken.
-// - You end each answer by saying "stop" (decision 35), so you can pause to think. "Stop" isn't part of the
-//   answer. A Done button does the same, and an answer also finishes after 20 seconds with no new words.
+// - You end each answer by saying "stop" or "next" (decision 35), so you can pause to think. Neither word is part
+//   of the answer. A Done button does the same, and an answer also finishes after 20 seconds with no new words.
 // - On iPhone, cutting the mic off after it has heard words leaves it hearing nothing for minutes (test 6, and
 //   the first real use of voice on 22 Nov). So there Dispatch never cuts a session off after words (letItEnd):
 //   one-answer sessions listen phrase by phrase, which the iPhone ends at each pause, and Dispatch starts the
@@ -38,14 +38,20 @@ export const canListen = () => !!recognitionConstructor();
 export const canSpeak = () => typeof window !== "undefined" && "speechSynthesis" in window;
 export const isIPhone = () => typeof navigator !== "undefined" && /iPhone|iPad|iPod/.test(navigator.userAgent);
 
+/** Words that end an answer (decision 35): "stop", or "next", which can feel more natural in conversation. */
+export const END_WORDS = ["stop", "next"];
+
 /**
- * If the words end with the command "stop", returns them without it (possibly ""). Otherwise null.
- * "Stop" must be its own last word: "Priya, stop." ends; "stopping" doesn't.
+ * If the words end with "stop" or "next" (said once or more, e.g. "stop stop" when the first wasn't picked up),
+ * returns them without those words (possibly ""). Otherwise null. They must be the last words: "Priya, next."
+ * ends an answer; "next week", "next Friday" and "stopping" don't.
  */
-export function withoutStop(text: string): string | null {
+export function withoutEndWord(text: string): string | null {
   const words = text.trim().split(/\s+/).filter(Boolean);
-  if (!words.length || words[words.length - 1].toLowerCase().replace(/[^a-z]/g, "") !== "stop") return null;
-  return words.slice(0, -1).join(" ").replace(/[\s,;:]+$/, "");
+  let end = words.length;
+  while (end > 0 && END_WORDS.includes(words[end - 1].toLowerCase().replace(/[^a-z]/g, ""))) end--;
+  if (end === words.length) return null;
+  return words.slice(0, end).join(" ").replace(/[\s,;:.]+$/, "");
 }
 
 /** Reads text aloud in a British voice. Resolves when it finishes (or after a safety timeout). */
@@ -80,7 +86,7 @@ export function stopSpeaking() {
 export type VoiceOptions = {
   /** true: one session for the whole note (hands-free). false: one answer, then finish. */
   keepOpen: boolean;
-  /** Gets each answer, without the "stop" (an empty string if nothing was said). */
+  /** Gets each answer, without the closing "stop" or "next" (an empty string if nothing was said). */
   onAnswer: (text: string) => void;
   /** The answer so far, as the words arrive. */
   onWords?: (text: string) => void;
@@ -185,7 +191,7 @@ export class VoiceSession {
 
   /** The Done button: finishes the answer now, with whatever has been said. */
   finishNow() {
-    if (this.windowOpen) this.finish(withoutStop(this.answer()) ?? this.answer());
+    if (this.windowOpen) this.finish(withoutEndWord(this.answer()) ?? this.answer());
   }
 
   /** Stops listening altogether (leaving the screen, or turning hands-free off). */
@@ -235,7 +241,7 @@ export class VoiceSession {
   private heard() {
     if (!this.windowOpen) return;
     const text = this.answer();
-    const done = withoutStop(text);
+    const done = withoutEndWord(text);
     if (done !== null) return this.finish(done);
     this.opts.onWords?.(text);
     this.resetIdle();
@@ -280,7 +286,7 @@ export class VoiceSession {
     }
     // iPhone with Speak questions on: your pause ends the answer, as in round 7.
     if (this.windowOpen && this.opts.endAtPause) {
-      this.finish(withoutStop(this.answer()) ?? this.answer());
+      this.finish(withoutEndWord(this.answer()) ?? this.answer());
       return;
     }
     // Ended mid-answer, or between answers in a note-long session: carry on listening.

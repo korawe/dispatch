@@ -2,7 +2,7 @@
 // The listening session with a pretend recogniser and a pretend clock, so no microphone is needed.
 import { mock, test } from "node:test";
 import assert from "node:assert/strict";
-import { VoiceSession, withoutStop, type Recognition, type VoiceOptions } from "./voice.ts";
+import { VoiceSession, withoutEndWord, type Recognition, type VoiceOptions } from "./voice.ts";
 
 function fakeRecogniser() {
   const rec = {
@@ -44,13 +44,36 @@ function session(opts: Partial<VoiceOptions> & { keepOpen: boolean }) {
   return { s, rec, hear, answers, problems };
 }
 
-test("withoutStop: 'stop' as the last word ends an answer and is dropped", () => {
-  assert.equal(withoutStop("Priya stop"), "Priya");
-  assert.equal(withoutStop("pull revenue and costs, stop."), "pull revenue and costs");
-  assert.equal(withoutStop("Stop"), "");
-  assert.equal(withoutStop("Priya"), null);
-  assert.equal(withoutStop("stopping the rollout"), null);
-  assert.equal(withoutStop(""), null);
+test("withoutEndWord: 'stop' or 'next' as the last word ends an answer and is dropped", () => {
+  assert.equal(withoutEndWord("Priya stop"), "Priya");
+  assert.equal(withoutEndWord("Priya, next."), "Priya");
+  assert.equal(withoutEndWord("pull revenue and costs, stop."), "pull revenue and costs");
+  assert.equal(withoutEndWord("Stop"), "");
+  assert.equal(withoutEndWord("Next"), "");
+  assert.equal(withoutEndWord("Priya"), null);
+  assert.equal(withoutEndWord("stopping the rollout"), null);
+  assert.equal(withoutEndWord(""), null);
+});
+
+test("withoutEndWord: saying it twice (the first wasn't picked up) leaves neither in the answer", () => {
+  assert.equal(withoutEndWord("Q3 board numbers stop stop"), "Q3 board numbers");
+  assert.equal(withoutEndWord("Q3 board numbers stop. Stop."), "Q3 board numbers");
+  assert.equal(withoutEndWord("Q3 board numbers next stop"), "Q3 board numbers");
+});
+
+test("withoutEndWord: 'next' earlier in an answer doesn't end it", () => {
+  assert.equal(withoutEndWord("by next Friday"), null);
+  assert.equal(withoutEndWord("plan for next week"), null);
+  assert.equal(withoutEndWord("by next Friday next"), "by next Friday");
+});
+
+test("a session ends an answer on 'next' too", () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { s, hear, answers } = session({ keepOpen: true });
+  s.openWindow();
+  hear("a one-page summary", "next");
+  assert.deepEqual(answers, ["a one-page summary"]);
+  mock.timers.reset();
 });
 
 test("laptop: pauses don't end an answer; 'stop' does, and isn't included", () => {

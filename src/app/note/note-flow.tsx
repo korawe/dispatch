@@ -871,7 +871,7 @@ export function NoteFlow() {
         >
           {listening && (
             <div className="flex items-center justify-between gap-3">
-              <p className="font-bold">🎙 Listening – say &ldquo;stop&rdquo; when you&apos;ve finished</p>
+              <p className="font-bold">🎙 Listening – say &ldquo;next&rdquo; or &ldquo;stop&rdquo; when you&apos;ve finished</p>
               <button onClick={() => sessionRef.current?.finishNow()} className="btn-secondary shrink-0">
                 ✓ Done
               </button>
@@ -907,7 +907,7 @@ export function NoteFlow() {
               <p className="text-sm leading-relaxed text-dim">
                 {settings.speakPrompts
                   ? "Tap Speak this answer for each question."
-                  : "Speak this answer: just this question. Hands-free: the mic stays on for the whole note. Say “stop” after each answer."}
+                  : "Speak this answer: just this question. Hands-free: the mic stays on for the whole note. Say “next” or “stop” after each answer."}
               </p>
             </div>
           )
