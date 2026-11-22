@@ -2,7 +2,7 @@
 // The listening session with a pretend recogniser and a pretend clock, so no microphone is needed.
 import { mock, test } from "node:test";
 import assert from "node:assert/strict";
-import { VoiceSession, type Recognition } from "./voice.ts";
+import { VoiceSession, withoutStop, type Recognition, type VoiceOptions } from "./voice.ts";
 
 function fakeRecogniser() {
   const rec = {
@@ -23,126 +23,128 @@ function fakeRecogniser() {
     onerror: null as ((e: { error: string }) => void) | null,
     onend: null as (() => void) | null,
   };
-  // What the browser sends: every phrase heard so far in this session.
+  // What the browser sends: every phrase heard so far in this run of the session.
   const hear = (...phrases: string[]) =>
     rec.onresult?.({ results: phrases.map((t) => Object.assign([{ transcript: t }], { isFinal: true })) });
   return { rec, hear };
 }
 
-function session(keepOpen: boolean) {
+function session(opts: Partial<VoiceOptions> & { keepOpen: boolean }) {
   const { rec, hear } = fakeRecogniser();
   const answers: string[] = [];
   const problems: string[] = [];
   const s = new VoiceSession({
-    keepOpen,
     create: () => rec as Recognition,
     onAnswer: (t) => answers.push(t),
     onProblem: (p) => problems.push(p),
+    ...opts,
   });
   assert.equal(s.start(), true);
   rec.onstart?.();
   return { s, rec, hear, answers, problems };
 }
 
-test("one answer: ends 1.5s after the words stop, then stops the mic", () => {
+test("withoutStop: 'stop' as the last word ends an answer and is dropped", () => {
+  assert.equal(withoutStop("Priya stop"), "Priya");
+  assert.equal(withoutStop("pull revenue and costs, stop."), "pull revenue and costs");
+  assert.equal(withoutStop("Stop"), "");
+  assert.equal(withoutStop("Priya"), null);
+  assert.equal(withoutStop("stopping the rollout"), null);
+  assert.equal(withoutStop(""), null);
+});
+
+test("laptop: pauses don't end an answer; 'stop' does, and isn't included", () => {
   mock.timers.enable({ apis: ["setTimeout"] });
-  const { s, rec, hear, answers } = session(false);
+  const { s, rec, hear, answers } = session({ keepOpen: false });
   s.openWindow();
   hear("pull revenue");
-  mock.timers.tick(1000);
-  hear("pull revenue and costs"); // still talking: the pause starts again
-  mock.timers.tick(1000);
+  mock.timers.tick(5000); // a long pause to think
   assert.deepEqual(answers, []);
-  mock.timers.tick(500);
+  hear("pull revenue", "and costs stop");
   assert.deepEqual(answers, ["pull revenue and costs"]);
-  assert.equal(rec.aborts, 1);
+  assert.equal(rec.aborts, 1); // Chrome is fine with being cut off
   mock.timers.reset();
 });
 
-test("one answer: gives up after 8s with no words", () => {
+test("iPhone: listens phrase by phrase until 'stop', and never cuts the mic off after words", () => {
   mock.timers.enable({ apis: ["setTimeout"] });
-  const { s, answers } = session(false);
+  const { s, rec, hear, answers } = session({ keepOpen: false, continuous: false, letItEnd: true });
   s.openWindow();
-  mock.timers.tick(8000);
-  assert.deepEqual(answers, [""]);
-  mock.timers.reset();
-});
-
-test("one answer: if the browser ends early, what was heard is used", () => {
-  mock.timers.enable({ apis: ["setTimeout"] });
-  const { s, rec, hear, answers } = session(false);
-  s.openWindow();
-  hear("Priya");
-  rec.onend?.();
-  assert.deepEqual(answers, ["Priya"]);
-  mock.timers.reset();
-});
-
-test("iPhone one answer: waits for the iPhone to end the turn, and doesn't cut its mic off", () => {
-  mock.timers.enable({ apis: ["setTimeout"] });
-  const { rec, hear } = fakeRecogniser();
-  const answers: string[] = [];
-  const s = new VoiceSession({ keepOpen: false, waitForBrowserEnd: true, create: () => rec as Recognition, onAnswer: (t) => answers.push(t) });
-  s.start();
+  hear("pull revenue");
+  rec.onend?.(); // the iPhone ends the phrase at your pause
+  assert.equal(rec.starts, 2); // Dispatch carries on listening
+  assert.deepEqual(answers, []);
   rec.onstart?.();
-  s.openWindow();
-  hear("Priya");
-  mock.timers.tick(1500);
-  assert.deepEqual(answers, []); // no cutting in after 1.5s
-  rec.onend?.(); // the iPhone ends the turn itself
-  assert.deepEqual(answers, ["Priya"]);
+  hear("and costs stop");
+  assert.deepEqual(answers, ["pull revenue and costs"]);
+  assert.equal(rec.aborts, 0);
+  rec.onend?.(); // the iPhone finishes by itself after "stop"
+  assert.equal(rec.starts, 2); // and isn't restarted
+  mock.timers.tick(10_000);
   assert.equal(rec.aborts, 0);
   mock.timers.reset();
 });
 
-test("iPhone one answer: steps in after 6s if the iPhone never ends the turn", () => {
+test("iPhone: steps in after 6s if the iPhone never finishes after 'stop'", () => {
   mock.timers.enable({ apis: ["setTimeout"] });
-  const { rec, hear } = fakeRecogniser();
-  const answers: string[] = [];
-  const s = new VoiceSession({ keepOpen: false, waitForBrowserEnd: true, create: () => rec as Recognition, onAnswer: (t) => answers.push(t) });
-  s.start();
-  rec.onstart?.();
+  const { s, rec, hear, answers } = session({ keepOpen: false, continuous: false, letItEnd: true });
   s.openWindow();
-  hear("Priya");
-  mock.timers.tick(6000);
+  hear("Priya stop");
   assert.deepEqual(answers, ["Priya"]);
+  mock.timers.tick(6000);
   assert.equal(rec.aborts, 1);
   mock.timers.reset();
 });
 
-test("hands-free: each answer is only the words after its question", () => {
+test("Done button finishes with what was said so far", () => {
   mock.timers.enable({ apis: ["setTimeout"] });
-  const { s, hear, answers } = session(true);
+  const { s, hear, answers } = session({ keepOpen: false });
   s.openWindow();
-  hear("Priya");
-  mock.timers.tick(1500);
-  s.openWindow(); // next question
-  hear("Priya", "Q3 board numbers");
-  mock.timers.tick(1500);
-  hear("Priya", "Q3 board numbers", "ignored until the next question");
-  mock.timers.tick(1500);
-  assert.deepEqual(answers, ["Priya", "Q3 board numbers"]);
+  hear("a one-page summary");
+  s.finishNow();
+  assert.deepEqual(answers, ["a one-page summary"]);
   mock.timers.reset();
 });
 
-test("hands-free: restarts when the browser ends the session, keeping what was heard", () => {
+test("an answer finishes after 20s with no new words", () => {
   mock.timers.enable({ apis: ["setTimeout"] });
-  const { s, rec, hear, answers } = session(true);
+  const { s, answers } = session({ keepOpen: false });
   s.openWindow();
-  hear("Priya");
-  rec.onend?.(); // the browser stopped listening mid-answer
-  assert.deepEqual(answers, ["Priya"]);
+  mock.timers.tick(20_000);
+  assert.deepEqual(answers, [""]);
+  mock.timers.reset();
+});
+
+test("hands-free: each answer is only the words after its question, ended by 'stop'", () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { s, rec, hear, answers } = session({ keepOpen: true });
+  s.openWindow();
+  hear("Priya stop");
+  s.openWindow(); // next question
+  hear("Priya stop", "Q3 board numbers");
+  mock.timers.tick(3000);
+  hear("Priya stop", "Q3 board numbers stop");
+  hear("Priya stop", "Q3 board numbers stop", "ignored until the next question");
+  assert.deepEqual(answers, ["Priya", "Q3 board numbers"]);
+  assert.equal(rec.aborts, 0); // the session stays open between answers
+  mock.timers.reset();
+});
+
+test("hands-free: if the browser ends the session mid-answer, it restarts and keeps what was said", () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { s, rec, hear, answers } = session({ keepOpen: true });
+  s.openWindow();
+  hear("Q3 board");
+  rec.onend?.();
   assert.equal(rec.starts, 2);
   rec.onstart?.();
-  s.openWindow();
-  hear("Tom"); // a fresh session starts its words again
-  mock.timers.tick(1500);
-  assert.deepEqual(answers, ["Priya", "Tom"]);
+  hear("numbers stop"); // a fresh run starts its words again
+  assert.deepEqual(answers, ["Q3 board numbers"]);
   mock.timers.reset();
 });
 
 test("not allowed: says so and stops", () => {
-  const { rec, problems } = session(true);
+  const { rec, problems } = session({ keepOpen: true });
   rec.onerror?.({ error: "not-allowed" });
   assert.equal(problems.length, 1);
   assert.equal(rec.aborts, 1);

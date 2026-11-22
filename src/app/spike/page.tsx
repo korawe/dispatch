@@ -200,8 +200,8 @@ function Spike() {
             <AppIcon size={40} outlined />
             <span className="font-display text-[24px] leading-none font-extrabold tracking-tight">dispatch</span>
           </Link>
-          <Link href="/" className="btn-secondary">
-            ← Home
+          <Link href="/admin" className="btn-secondary">
+            ← Admin
           </Link>
         </div>
         <h1 className="pt-2 font-display text-[34px] leading-none font-extrabold tracking-tight">Phase 0 tests</h1>
@@ -249,8 +249,8 @@ function Spike() {
         />
       </section>
 
-      <Link href="/" className="btn-secondary w-full">
-        ← Back to Dispatch
+      <Link href="/admin" className="btn-secondary w-full">
+        ← Back to Admin
       </Link>
     </main>
   );

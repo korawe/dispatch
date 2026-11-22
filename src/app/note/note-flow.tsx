@@ -113,6 +113,49 @@ function Chip({ selected, onClick, children }: { selected?: boolean; onClick: ()
   );
 }
 
+function CopyIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="9" y="9" width="11" height="11" rx="2.5" />
+      <path d="M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9" />
+    </svg>
+  );
+}
+
+function TickIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </svg>
+  );
+}
+
+/** One part of the email in its own box, with a copy icon in its top-right corner (like Claude's). */
+function CopyField({ label, copied, onCopy, children }: { label: string; copied: boolean; onCopy: () => void; children: ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-bold tracking-[0.06em] text-dim uppercase">
+        {label}
+        {copied && " · copied ✓"}
+      </p>
+      <div className="relative rounded-xl border-2 border-ink bg-white focus-within:shadow-pop">
+        {children}
+        <button
+          onClick={onCopy}
+          aria-label={copied ? `${label} copied` : `Copy ${label.toLowerCase()}`}
+          title={copied ? "Copied" : "Copy"}
+          className={`absolute top-1.5 right-1.5 grid h-9 w-9 place-items-center rounded-lg border-2 border-ink ${copied ? "bg-sun" : "bg-white"}`}
+        >
+          {copied ? <TickIcon /> : <CopyIcon />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Text inside a CopyField, leaving room for the copy icon on the right. */
+const fieldText = "block w-full rounded-xl bg-transparent py-3 pl-3 pr-14 text-base outline-none";
+
 function Buttons({ children }: { children: ReactNode }) {
   return <div className="flex flex-wrap gap-2 pt-1">{children}</div>;
 }
@@ -362,10 +405,9 @@ export function NoteFlow() {
     setHeard("");
     const session = new VoiceSession({
       keepOpen: false,
-      // On iPhone: a single-phrase listen that the iPhone ends itself, exactly as in test 6 round 7 (5 of 5).
-      // Cutting its mic off after it has heard words stops it hearing anything for minutes.
+      // On iPhone: phrase by phrase, never cutting the mic off after it has heard words (test 6), until "stop".
       continuous: !isIPhone(),
-      waitForBrowserEnd: isIPhone(),
+      letItEnd: isIPhone(),
       onListening: setListening,
       onWords: setHeard,
       onProblem: setVoiceMessage,
@@ -656,46 +698,40 @@ export function NoteFlow() {
       const done = (part: string) => note.copied.includes(`${note.emailIndex}:${part}`);
       const edit = (patch: Partial<EmailDraft>) =>
         setNote((n) => ({ ...n, emails: n.emails.map((e, i) => (i === n.emailIndex ? { ...e, ...patch } : e)) }));
-      const copyButton = (part: string, text: string) => (
-        <button onClick={() => copy(part, text)} className={done(part) ? "btn-secondary" : "btn-primary"}>
-          {done(part) ? "✓ Copied" : "Copy"}
-        </button>
-      );
       const nextEmail = note.emails[note.emailIndex + 1];
+      const ccText = email.cc.join("; ");
       body = (
         <>
-          <Question ask={`${owner?.name ?? "Their"}'s email`} hint="Paste each part into a new email in Outlook. Copied parts get a tick." />
-          <div className="space-y-4 rounded-[18px] border-2 border-ink bg-white p-4 shadow-pop">
-            <div className="flex items-center gap-3">
-              <span className="min-w-0 flex-1">
-                <span className="block text-xs font-bold tracking-[0.06em] text-dim uppercase">To</span>
-                <span className="block truncate">{email.to}</span>
-              </span>
-              {copyButton("to", email.to)}
-            </div>
+          <Question
+            ask={`${owner?.name ?? "Their"}'s email`}
+            hint="Tap the copy icon on each part, then paste it into a new email in Outlook. You can edit the subject and body first."
+          />
+          <div className="space-y-4">
+            <CopyField label="To" copied={done("to")} onCopy={() => copy("to", email.to)}>
+              <p className={`${fieldText} break-all`}>{email.to}</p>
+            </CopyField>
             {email.cc.length > 0 && (
-              <div className="flex items-center gap-3">
-                <span className="min-w-0 flex-1">
-                  <span className="block text-xs font-bold tracking-[0.06em] text-dim uppercase">CC</span>
-                  <span className="block truncate">{email.cc.join("; ")}</span>
-                </span>
-                {copyButton("cc", email.cc.join("; "))}
-              </div>
+              <CopyField label="CC" copied={done("cc")} onCopy={() => copy("cc", ccText)}>
+                <p className={`${fieldText} break-all`}>{ccText}</p>
+              </CopyField>
             )}
-            <label className="block space-y-1">
-              <span className="flex items-center justify-between gap-3">
-                <span className="text-xs font-bold tracking-[0.06em] text-dim uppercase">Subject</span>
-                {copyButton("subject", email.subject)}
-              </span>
-              <input value={email.subject} onChange={(e) => edit({ subject: e.target.value })} className={inputClass} />
-            </label>
-            <label className="block space-y-1">
-              <span className="flex items-center justify-between gap-3">
-                <span className="text-xs font-bold tracking-[0.06em] text-dim uppercase">Body</span>
-                {copyButton("body", email.body)}
-              </span>
-              <textarea value={email.body} onChange={(e) => edit({ body: e.target.value })} rows={14} className={inputClass} />
-            </label>
+            <CopyField label="Subject" copied={done("subject")} onCopy={() => copy("subject", email.subject)}>
+              <input
+                aria-label="Subject"
+                value={email.subject}
+                onChange={(e) => edit({ subject: e.target.value })}
+                className={fieldText}
+              />
+            </CopyField>
+            <CopyField label="Body" copied={done("body")} onCopy={() => copy("body", email.body)}>
+              <textarea
+                aria-label="Body"
+                value={email.body}
+                onChange={(e) => edit({ body: e.target.value })}
+                rows={14}
+                className={`${fieldText} resize-y`}
+              />
+            </CopyField>
           </div>
           <div className="flex flex-col gap-3">
             {nextEmail ? (
@@ -755,7 +791,7 @@ export function NoteFlow() {
           {!settings.speakPrompts &&
             (handsFree ? (
               <button onClick={stopHandsFree} className={`${pill} bg-sun`}>
-                🎙 Hands-free on · tap to stop
+                🎙 Hands-free on · tap to turn off
               </button>
             ) : (
               <button onClick={startHandsFree} className={`${pill} bg-white`}>
@@ -771,7 +807,14 @@ export function NoteFlow() {
           aria-live="polite"
           className={`space-y-1 rounded-xl border-2 border-ink px-3 py-2.5 ${listening ? "bg-sun shadow-pop" : "bg-periwinkle"}`}
         >
-          {listening && <p className="font-bold">🎙 Listening – speak now</p>}
+          {listening && (
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-bold">🎙 Listening – say &ldquo;stop&rdquo; when you&apos;ve finished</p>
+              <button onClick={() => sessionRef.current?.finishNow()} className="btn-secondary shrink-0">
+                ✓ Done
+              </button>
+            </div>
+          )}
           {heard && <p className="font-mono text-sm">&ldquo;{heard}&rdquo;</p>}
           {voiceMessage && <p className="text-[15px]">{voiceMessage}</p>}
         </div>

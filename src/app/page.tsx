@@ -20,12 +20,9 @@ export default function Home() {
         </Link>
       </div>
 
-      <p className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-sm text-dim">
-        <Link href="/spike" className="underline">
-          Phase 0 tests
-        </Link>
-        <Link href="/looks" className="underline">
-          Look &amp; feel options
+      <p className="text-center text-sm text-dim">
+        <Link href="/admin" className="underline">
+          Admin
         </Link>
       </p>
     </main>

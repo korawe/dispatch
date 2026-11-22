@@ -190,6 +190,7 @@ Two tabs: **Open** and **Completed**.
 - After you tap to start, Dispatch can run the whole flow by voice. How it talks to you depends on the **Speak prompts** setting (decision 32):
   - **Speak prompts on:** Dispatch **speaks** its questions, the "read back / review / send" choice and the read-back. You **tap the big mic button once** to answer each time. This is an iPhone limit (test 6).
   - **Speak prompts off:** the questions and choices show on screen, and the mic stays on for the whole note, so you answer with **no taps**. Good at your desk, or whenever you can glance at the screen.
+- **You end each spoken answer by saying "stop"** (decision 35), so you can pause to think. "Stop" isn't included in the answer. A Done button does the same, and an answer also finishes after 20 seconds with no new words.
 - Example commands: "read it back", "review", "send", "change the deadline to Thursday", "add Tom on copy", "remove the second action", "cancel", "next".
 - The on-screen controls are always there too. You can switch between voice and touch at any point.
 
@@ -209,7 +210,7 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
 | Install to Home Screen | ✓ Works | On newer iOS, Share sits under the **⋯** button in Safari |
 | Microphone recording | ✓ Works | Records in a format cloud speech-to-text services accept |
 | Mic permission after reopening | ✓ Remembered | No repeated prompts |
-| Built-in speech recognition | ✓ Worked on re-test, and in the detailed test (4b). The first attempt failed ("aborted"); the cause is unknown. ✓ Windows laptop, Chrome (22 Nov): accurate, but it stopped listening before the end of a longer sentence, most likely at the first pause | Use it, because it's free (§10.3). Keyboard dictation is the fallback (Windows key + H on the laptop). Voice capture keeps the mic open (continuous mode) and ends a turn after about 1.5s of silence, so pauses don't cut you off |
+| Built-in speech recognition | ✓ Worked on re-test, and in the detailed test (4b). The first attempt failed ("aborted"); the cause is unknown. ✓ Windows laptop, Chrome (22 Nov): accurate, but it stopped listening before the end of a longer sentence, most likely at the first pause | Use it, because it's free (§10.3). Keyboard dictation is the fallback (Windows key + H on the laptop). Voice capture keeps listening across pauses and ends an answer when you say "stop" (decision 35), so pauses don't cut you off |
 | Read aloud (built-in voices) | ✓ Works with silent mode off; ✗ muted when the phone is on silent | Neither workaround (test 5b, A and B) gets round silent mode |
 | Recorded voice clip (as a cloud voice would deliver) | ✓ Plays with silent mode on | A cloud text-to-speech service works even when the phone is on silent |
 | Hands-free conversation (test 6, 7 rounds, 16–22 Nov) | ✓ Two free ways work, 5 of 5 words each: **spoken questions with a tap per answer** (round 7), and **the mic on for the whole note with questions on screen, no taps** (round 5). ✗ Spoken questions with no taps: once Dispatch's voice plays out loud, the built-in recognition stops hearing anything, often for minutes and even after reopening the app | Decision 32: the Speak prompts setting picks between the two (§9). A listen started by a tap works even straight after the voice. These didn't help: changing how a turn ends, waiting between turns, or telling Safari the page plays and records at once ("play-and-record"). Turn-taking: the iPhone ends a turn about 1.6s after you stop talking. Once, the phone's audio stuck completely (no voice, mic "audio-capture" error) until the iPhone was restarted. An ordinary recording made while the voice played came out empty, so it's untested whether a paid cloud speech service could manage spoken questions with no taps |
@@ -241,7 +242,7 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
   - (b) **A cloud speech-to-text API:** records audio and sends it to a transcription service. More consistent across phone and desktop. Usually priced per minute of audio.
   - **Decided after Phase 0 testing:** use (a), because speech-to-text must be free (decision 29) and it worked in the installed iPhone app on re-test (§9).
     - If it fails, the fallback is the iPhone keyboard's dictation (the mic key), which is also free.
-    - Desktop: works in Chrome on Windows (22 Nov). It ends a single-phrase listen at the first pause, so Dispatch listens continuously and detects the end of each answer itself.
+    - Desktop: works in Chrome on Windows (22 Nov). It ends a single-phrase listen at the first pause, so Dispatch keeps listening until you say "stop" (decision 35).
     - For the IT check (§12): built-in recognition comes from Apple on iPhone, Google in Chrome and Microsoft in Edge, so audio may be processed on their servers. Which desktop browser you install Dispatch from decides which company that is.
     - (b) remains an option later.
 - **Text-to-speech** (read-back and prompts): **decided, the browser's built-in voices (free).**
@@ -357,6 +358,7 @@ For now, everything runs on free tiers.
 | 32 | Hands-free on iPhone uses the Speak prompts setting. On: Dispatch speaks, and you tap once per answer. Off: the mic stays on and the questions show on screen, with no taps. Both are free and worked 5 of 5 in test 6. Spoken questions with no taps would need a paid speech service, so they aren't pursued | You (22 Nov, after test 6) |
 | 33 | No AI for now: Dispatch asks for each part of each action and builds the emails from a fixed template, at zero cost. AI drafting from a free-form note can come later, starting with Claude Haiku 5.5 (about 50p a month); it's billed separately from a claude.ai plan, though a Team plan's API credits may cover it (§10.4) | You (22 Nov) |
 | 34 | Phase 1 stores everything on the device and brings a simple people list (name and email) forward from Phase 2. Supabase and the login arrive in Phase 3, when your phone and PC need to share data | You (22 Nov) |
+| 35 | A spoken answer ends when you say "stop" (left out of the answer) or tap Done, not after a pause, so you can stop to think. On iPhone, Dispatch listens phrase by phrase and never cuts the mic off after it has heard words, because that stops it hearing anything for minutes (test 6, and the first real use on 22 Nov) | You (22 Nov) |
 
 ## 16. Open questions
 
