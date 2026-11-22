@@ -2,8 +2,8 @@
 
 // A note, start to finish (DispatchSpec.md §5, decision 33): Dispatch asks for each action's owner, title,
 // context, action, outcome and deadline; then who to copy in on each email; then shows the emails with copy
-// buttons for Outlook. Answers can be typed or spoken (decision 32): "Answer by voice" listens for one answer;
-// with Speak questions on, Dispatch reads each question aloud; with it off, "Go hands-free" keeps the mic on
+// buttons for Outlook. Answers can be typed or spoken (decision 32): "Speak this answer" listens for one answer;
+// with Read questions aloud on, Dispatch reads each question aloud; with it off, "Hands-free" keeps the mic on
 // for the whole note. Progress is saved on the device, so closing the app mid-note loses nothing.
 
 import { useRouter } from "next/navigation";
@@ -222,6 +222,11 @@ export function NoteFlow() {
   const [heard, setHeard] = useState("");
   const [voiceMessage, setVoiceMessage] = useState("");
   const sessionRef = useRef<VoiceSession | null>(null);
+  const noteSessionRef = useRef(false); // the current session is the note-long one
+  const handsFreeRef = useRef(false);
+  useEffect(() => {
+    handsFreeRef.current = handsFree;
+  }, [handsFree]);
   const lastSpokenRef = useRef("");
   // The latest note and people, for voice answers that arrive after a render.
   const noteRef = useRef(note);
@@ -261,6 +266,7 @@ export function NoteFlow() {
     () => () => {
       sessionRef.current?.stop();
       sessionRef.current = null;
+      noteSessionRef.current = false;
       stopSpeaking();
       setHandsFree(false);
       setListening(false);
@@ -271,7 +277,7 @@ export function NoteFlow() {
 
   function startAgain() {
     if (!confirm("Start again? This note's answers will be cleared.")) return;
-    stopHandsFree();
+    endVoice();
     setNote(emptyNote());
     setDeadline(null);
     setPastOk(false);
@@ -318,7 +324,7 @@ export function NoteFlow() {
     const current = noteRef.current;
     const ppl = peopleRef.current;
     const lastOne = current.ccIndex + 1 >= groupByOwner(current.actions).size;
-    if (lastOne) stopHandsFree(); // copying into Outlook needs taps anyway
+    if (lastOne) endVoice(); // copying into Outlook needs taps anyway, so the mic goes off
     setNote((n) =>
       n.ccIndex + 1 < groupByOwner(n.actions).size
         ? { ...n, ccIndex: n.ccIndex + 1 }
@@ -415,18 +421,53 @@ export function NoteFlow() {
     }
   }
 
-  /** "Answer by voice": listens for one answer. Starts inside the tap, as the iPhone requires. */
+  /**
+   * The note-long listening session: one session for the whole note, started by the first tap. On iPhone, starting
+   * and stopping a session per answer leaves it hearing nothing (test 6, and real use on 22 Nov); one session
+   * for the whole note, with nothing spoken, is what worked (round 5, 5 of 5). Hands-free uses it everywhere.
+   */
+  function noteSession(): VoiceSession | null {
+    const current = sessionRef.current;
+    if (current && noteSessionRef.current && current.alive) return current;
+    current?.stop();
+    const session = new VoiceSession({
+      keepOpen: true,
+      onWindow: setListening,
+      onWords: setHeard,
+      onProblem: setVoiceMessage,
+      onAnswer: (text) => {
+        const problem = applyVoiceAnswer(text);
+        setVoiceMessage(problem ?? "");
+        setHeard(problem ? text : "");
+        if (problem && handsFreeRef.current) session.openWindow(); // hands-free: listen for the same question again
+      },
+    });
+    if (!session.start()) return null;
+    sessionRef.current = session;
+    noteSessionRef.current = true;
+    return session;
+  }
+
+  /** "Speak this answer": listen for this answer. Starts inside the tap, as the iPhone requires. */
   function answerByVoice() {
-    stopSpeaking();
-    sessionRef.current?.stop();
     setVoiceMessage("");
     setHeard("");
+    if (isIPhone() && !settings.speakPrompts) {
+      noteSession()?.openWindow(); // the first tap starts the note's session; later taps just open an answer
+      return;
+    }
+    // The laptop, or the iPhone with Speak questions on: a fresh listen for this one answer. On iPhone, Dispatch's
+    // voice would kill a session left open, so each answer gets its own listen, ended by the iPhone at your pause
+    // (round 7, 5 of 5).
+    stopSpeaking();
+    sessionRef.current?.stop();
+    noteSessionRef.current = false;
     const session = new VoiceSession({
       keepOpen: false,
-      // On iPhone: phrase by phrase, never cutting the mic off after it has heard words (test 6), until "stop".
       continuous: !isIPhone(),
       letItEnd: isIPhone(),
-      onListening: setListening,
+      endAtPause: isIPhone(),
+      onWindow: setListening,
       onWords: setHeard,
       onProblem: setVoiceMessage,
       onAnswer: (text) => {
@@ -440,34 +481,30 @@ export function NoteFlow() {
     if (session.start()) session.openWindow();
   }
 
-  /** "Go hands-free": one listening session for the rest of the note, with questions on screen only. */
+  /** "Hands-free": the note's session, opening an answer for each question by itself. */
   function startHandsFree() {
     stopSpeaking();
-    sessionRef.current?.stop();
     setVoiceMessage("");
     setHeard("");
-    const session = new VoiceSession({
-      keepOpen: true,
-      onListening: setListening,
-      onWords: setHeard,
-      onProblem: setVoiceMessage,
-      onAnswer: (text) => {
-        const problem = applyVoiceAnswer(text);
-        setVoiceMessage(problem ?? "");
-        setHeard(problem ? text : "");
-        if (problem) session.openWindow(); // same question again
-      },
-    });
-    sessionRef.current = session;
-    if (session.start()) {
-      setHandsFree(true);
-      session.openWindow();
-    }
+    const session = noteSession();
+    if (!session) return;
+    setHandsFree(true);
+    session.openWindow();
   }
 
+  /** Hands-free off. On iPhone the mic session keeps running (stopping it upsets the iPhone); it ends with the note. */
   function stopHandsFree() {
+    setHandsFree(false);
+    setHeard("");
+    if (isIPhone()) sessionRef.current?.closeWindow();
+    else endVoice();
+  }
+
+  /** Stops listening altogether: at the finished emails, on Start again, or when Dispatch starts speaking. */
+  function endVoice() {
     sessionRef.current?.stop();
     sessionRef.current = null;
+    noteSessionRef.current = false;
     setHandsFree(false);
     setListening(false);
     setHeard("");
@@ -479,7 +516,7 @@ export function NoteFlow() {
     setSettings(next);
     saveSettings(next);
     if (next.speakPrompts) {
-      stopHandsFree(); // decision 32: spoken questions mean a tap per answer
+      endVoice(); // decision 32: spoken questions mean a tap per answer (and the voice would kill an open session)
       hearQuestion();
     } else {
       stopSpeaking();
@@ -809,32 +846,20 @@ export function NoteFlow() {
           )
         }
       />
-      {showVoice && (
+      {showVoice && speechOk && (
         <div className="flex flex-wrap gap-2">
-          {speechOk && (
-            <button
-              onClick={toggleSpeak}
-              aria-pressed={settings.speakPrompts}
-              className={`${pill} ${settings.speakPrompts ? "bg-sun" : "bg-white"}`}
-            >
-              🔊 Speak questions: {settings.speakPrompts ? "on" : "off"}
-            </button>
-          )}
+          <button
+            onClick={toggleSpeak}
+            aria-pressed={settings.speakPrompts}
+            className={`${pill} ${settings.speakPrompts ? "bg-sun" : "bg-white"}`}
+          >
+            🔊 Read questions aloud: {settings.speakPrompts ? "on" : "off"}
+          </button>
           {settings.speakPrompts && !armed && (
             <button onClick={hearQuestion} className={`${pill} bg-white`}>
               Hear this question
             </button>
           )}
-          {!settings.speakPrompts &&
-            (handsFree ? (
-              <button onClick={stopHandsFree} className={`${pill} bg-sun`}>
-                🎙 Hands-free on · tap to turn off
-              </button>
-            ) : (
-              <button onClick={startHandsFree} className={`${pill} bg-white`}>
-                🎙 Go hands-free
-              </button>
-            ))}
         </div>
       )}
       <p className="text-xs font-bold tracking-[0.06em] text-dim uppercase">{progress}</p>
@@ -856,11 +881,37 @@ export function NoteFlow() {
           {voiceMessage && <p className="text-[15px]">{voiceMessage}</p>}
         </div>
       )}
-      {showVoice && !handsFree && !listening && (
-        <button onClick={answerByVoice} className="btn-secondary w-full py-3">
-          🎙 Answer by voice
-        </button>
-      )}
+      {/* How to answer by voice: just this answer, or hands-free for the whole note. Hands-free isn't offered
+          while questions are read aloud (decision 32: the voice stops the iPhone hearing an open mic). */}
+      {showVoice &&
+        (handsFree ? (
+          <button
+            onClick={stopHandsFree}
+            className="w-full rounded-[14px] border-2 border-ink bg-sun px-4 py-3 font-bold shadow-pop"
+          >
+            🎙 Hands-free on · tap to turn off
+          </button>
+        ) : (
+          !listening && (
+            <div className="space-y-2">
+              <div className={`grid gap-3 ${settings.speakPrompts ? "grid-cols-1" : "grid-cols-2"}`}>
+                <button onClick={answerByVoice} className="btn-secondary py-3">
+                  🎙 Speak this answer
+                </button>
+                {!settings.speakPrompts && (
+                  <button onClick={startHandsFree} className="btn-secondary py-3">
+                    🎙 Hands-free
+                  </button>
+                )}
+              </div>
+              <p className="text-sm leading-relaxed text-dim">
+                {settings.speakPrompts
+                  ? "Tap Speak this answer for each question."
+                  : "Speak this answer: just this question. Hands-free: the mic stays on for the whole note. Say “stop” after each answer."}
+              </p>
+            </div>
+          )
+        ))}
     </div>
   );
 }

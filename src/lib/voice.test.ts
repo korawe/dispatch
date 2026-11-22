@@ -143,6 +143,50 @@ test("hands-free: if the browser ends the session mid-answer, it restarts and ke
   mock.timers.reset();
 });
 
+test("note-long session (iPhone): each tap opens an answer on the same session, nothing restarted or cut off", () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const windows: boolean[] = [];
+  const { s, rec, hear, answers } = session({ keepOpen: true, onWindow: (open) => windows.push(open) });
+  s.openWindow(); // first tap
+  hear("Priya", "stop");
+  hear("Priya", "stop", "chatting between questions"); // not answering: ignored
+  s.openWindow(); // next tap
+  hear("Priya", "stop", "chatting between questions", "Q3 board numbers");
+  mock.timers.tick(5000); // a pause to think
+  hear("Priya", "stop", "chatting between questions", "Q3 board numbers", "stop");
+  assert.deepEqual(answers, ["Priya", "Q3 board numbers"]);
+  assert.deepEqual(windows, [true, false, true, false]);
+  assert.equal(rec.starts, 1);
+  assert.equal(rec.aborts, 0);
+  assert.equal(s.alive, true);
+  mock.timers.reset();
+});
+
+test("closing an answer keeps the mic session running", () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { s, rec, hear, answers } = session({ keepOpen: true });
+  s.openWindow();
+  hear("half an answer");
+  s.closeWindow();
+  hear("half an answer", "stop");
+  assert.deepEqual(answers, []);
+  assert.equal(rec.aborts, 0);
+  assert.equal(s.alive, true);
+  mock.timers.reset();
+});
+
+test("iPhone with Speak questions on: the iPhone ending at your pause ends the answer", () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { s, rec, hear, answers } = session({ keepOpen: false, continuous: false, letItEnd: true, endAtPause: true });
+  s.openWindow();
+  hear("Priya");
+  rec.onend?.();
+  assert.deepEqual(answers, ["Priya"]);
+  assert.equal(rec.starts, 1); // no restart
+  assert.equal(rec.aborts, 0);
+  mock.timers.reset();
+});
+
 test("not allowed: says so and stops", () => {
   const { rec, problems } = session({ keepOpen: true });
   rec.onerror?.({ error: "not-allowed" });

@@ -85,6 +85,13 @@ export type VoiceOptions = {
   /** The answer so far, as the words arrive. */
   onWords?: (text: string) => void;
   onListening?: (listening: boolean) => void;
+  /** An answer has opened (true) or finished (false): when to show "Listening – say stop". */
+  onWindow?: (open: boolean) => void;
+  /**
+   * The browser ending the session at your pause ends the answer (no restart). For the iPhone with Speak
+   * questions on, where a fresh listen per answer that the iPhone ends itself is what works (test 6, round 7).
+   */
+  endAtPause?: boolean;
   onProblem?: (message: string) => void;
   /** Keep one session open across pauses (default true). iPhone one-answer sessions go phrase by phrase. */
   continuous?: boolean;
@@ -159,6 +166,21 @@ export class VoiceSession {
     this.finishing = false;
     this.restarts = 0;
     this.resetIdle();
+    this.opts.onWindow?.(true);
+  }
+
+  /** Stops collecting an answer but keeps the mic session running (hands-free turned off on iPhone). */
+  closeWindow() {
+    if (!this.windowOpen) return;
+    this.windowOpen = false;
+    this.carried = [];
+    this.clearTimer();
+    this.opts.onWindow?.(false);
+  }
+
+  /** True while the mic session is running and hasn't been stopped. */
+  get alive() {
+    return !this.stopped && !this.hasEnded;
   }
 
   /** The Done button: finishes the answer now, with whatever has been said. */
@@ -170,10 +192,12 @@ export class VoiceSession {
   stop() {
     if (this.stopped) return;
     this.stopped = true;
+    const wasOpen = this.windowOpen;
     this.windowOpen = false;
     this.clearTimer();
     this.cutOff();
     this.opts.onListening?.(false);
+    if (wasOpen) this.opts.onWindow?.(false);
   }
 
   private cutOff() {
@@ -220,6 +244,7 @@ export class VoiceSession {
   private finish(text: string) {
     this.windowOpen = false;
     this.clearTimer();
+    this.opts.onWindow?.(false);
     if (!this.opts.keepOpen) {
       this.finishing = true;
       this.opts.onListening?.(false);
@@ -253,7 +278,12 @@ export class VoiceSession {
       this.opts.onListening?.(false);
       return;
     }
-    // Ended mid-answer (the iPhone at a pause), or between answers when hands-free: carry on listening.
+    // iPhone with Speak questions on: your pause ends the answer, as in round 7.
+    if (this.windowOpen && this.opts.endAtPause) {
+      this.finish(withoutStop(this.answer()) ?? this.answer());
+      return;
+    }
+    // Ended mid-answer, or between answers in a note-long session: carry on listening.
     if ((this.windowOpen || this.opts.keepOpen) && this.restarts++ < 50) {
       try {
         this.rec?.start();
