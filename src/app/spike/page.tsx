@@ -688,6 +688,34 @@ function silentWavUrl() {
   return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
 }
 
+// A short "your turn" beep (0.15s at 880 Hz) as a WAV file, generated in the browser. It plays as
+// ordinary media, which test 5c showed is heard even with silent mode on.
+function beepWavUrl() {
+  const rate = 16000;
+  const samples = Math.round(rate * 0.15);
+  const buf = new ArrayBuffer(44 + samples);
+  const v = new DataView(buf);
+  const str = (o: number, s: string) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, "RIFF");
+  v.setUint32(4, 36 + samples, true);
+  str(8, "WAVE");
+  str(12, "fmt ");
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); // PCM
+  v.setUint16(22, 1, true); // mono
+  v.setUint32(24, rate, true);
+  v.setUint32(28, rate, true);
+  v.setUint16(32, 1, true);
+  v.setUint16(34, 8, true);
+  str(36, "data");
+  v.setUint32(40, samples, true);
+  for (let i = 0; i < samples; i++) {
+    const fade = Math.min(1, i / 160, (samples - i) / 160); // 10ms fade in and out, so it doesn't click
+    v.setUint8(44 + i, Math.round(128 + 70 * fade * Math.sin((2 * Math.PI * 880 * i) / rate)));
+  }
+  return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+}
+
 type AudioSessionNav = Navigator & { audioSession?: { type: string } };
 
 function ReadAloudSilentTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void }) {
@@ -812,8 +840,14 @@ function VoiceClipTest({ onInfo }: { onInfo: (t: string) => void }) {
   );
 }
 
-type HandsFreeMode = "spoken" | "screen";
+type HandsFreeMode = "spoken" | "screen" | "beep";
 type SavedRun = { summary: string; log: string[] };
+
+const MODE_LABELS: Record<HandsFreeMode, string> = {
+  spoken: "spoken questions",
+  screen: "on-screen questions",
+  beep: "on-screen questions + beep",
+};
 type Stage = "idle" | "speaking" | "showing" | "starting" | "listening" | "micOff" | "done";
 
 // Runs are saved on the phone so you can close and reopen the app between runs without losing them.
@@ -848,9 +882,11 @@ const STAGE_LABELS: Record<Stage, string> = {
 };
 
 /**
- * Hands-free loop: question → mic → reply, with no taps after Start. Two modes split the main
+ * Hands-free loop: question → mic → reply, with no taps after Start. The modes split the main
  * suspect for "the mic hears no words": "spoken" asks out loud (as Dispatch will), "screen" shows
- * the same questions on screen for about as long as speaking them takes, so the voice never plays.
+ * the same questions on screen for about as long as speaking them takes, so no sound plays, and
+ * "beep" is "screen" plus a short beep before each listen (and one from the tap), to see whether
+ * any sound just before the mic starts is enough or it has to be speech.
  */
 function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void }) {
   const voices = useVoices(env.speechSynthesis);
@@ -880,13 +916,36 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
     const openedSecs = Math.round(performance.now() / 1000);
     const before = { listens: usage.listens, speaks: usage.speaks };
     add(
-      `setup: ${mode === "spoken" ? "spoken questions" : "on-screen questions"}, ${where}, app opened ${openedSecs}s ago, ` +
+      `setup: ${MODE_LABELS[mode]}, ${where}, app opened ${openedSecs}s ago, ` +
         `earlier in this session: mic used ${before.listens}×, voice used ${before.speaks}×; ` +
         `${voices.length} voices, audio session ${session()}, speaking=${synth.speaking}, pending=${synth.pending}`
     );
     // Clear anything an earlier test left stuck in the speech queue.
     synth.cancel();
     const voice = pickVoice(voices, "");
+
+    // Beep mode uses one media element. Its first play is straight from the tap, so iPhone lets it play again later.
+    const beep = mode === "beep" ? new Audio(beepWavUrl()) : null;
+    const playBeep = () =>
+      new Promise<void>((resolve) => {
+        if (!beep) return resolve();
+        let settled = false;
+        const done = (how: string) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          add(how);
+          resolve();
+        };
+        const timer = setTimeout(() => done("beep timed out"), 1500);
+        beep.onended = () => done("beep finished");
+        beep.currentTime = 0;
+        beep
+          .play()
+          .then(() => add("beep playing"))
+          .catch((e) => done(`beep BLOCKED: ${String(e)}`));
+      });
+
     const say = async (text: string) => {
       setPrompt(text);
       if (mode === "spoken") {
@@ -894,14 +953,16 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
         add(`Dispatch: ${text}`);
         await speak(text, voice, add);
       } else {
-        // Shown for roughly as long as saying it would take, so both modes keep the same rhythm.
+        // Shown for roughly as long as saying it would take, so all modes keep the same rhythm.
         setStage("showing");
         add(`Dispatch (on screen): ${text}`);
         await wait(500 + text.length * 55);
+        await playBeep();
       }
     };
 
-    // No await before this first say(): iPhone only allows speech straight from the tap.
+    // No await before this first sound: iPhone only allows it straight from the tap.
+    if (beep) void playBeep();
     const firstQuestion = say("Who should own this action?");
 
     // Keep the screen on, so it can't lock part-way through a run.
@@ -954,6 +1015,7 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
     }
     document.removeEventListener("visibilitychange", onVisibility);
     await (lock as WakeLockSentinel | null)?.release().catch(() => {});
+    if (beep) URL.revokeObjectURL(beep.src);
     add("finished");
 
     // One line per run, so runs are easy to compare: which turns heard words, and for the ones
@@ -965,7 +1027,7 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
       )
       .join(" · ");
     const summary =
-      `${new Date().toLocaleString("en-GB")} · ${mode === "spoken" ? "spoken" : "on-screen"} · ${where} · ` +
+      `${new Date().toLocaleString("en-GB")} · ${MODE_LABELS[mode]} · ${where} · ` +
       `app opened ${openedSecs}s before · earlier mic ${before.listens}×, voice ${before.speaks}× · ` +
       `heard ${heardCount}/${turns.length}: ${perTurn}`;
     const next = [...loadRuns(), { summary, log: lines }].slice(-MAX_RUNS);
@@ -1003,23 +1065,27 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
       <p>
         This finds out why the mic sometimes hears no words. Each run is saved, so you can close the app between runs.
       </p>
+      <p>
+        In every run: tap Start once, then don&apos;t touch the screen. Each time the box below turns green and says{" "}
+        <b>Listening – speak now</b>, say <b>one</b> word, then wait for Dispatch to reply before the next. The words
+        are <b>John, Paul, Mary, Sarah</b>, then <b>stop</b>. If it says it didn&apos;t catch you, say the same word
+        again.
+      </p>
       <ol className="list-decimal space-y-1 pl-5">
         <li>
-          Switch <b>silent mode off</b> and turn the volume up.
+          Switch <b>silent mode off</b>, turn the volume up, and wait <b>two minutes</b> since your last run.
         </li>
         <li>
           <b>Close Dispatch fully</b> (swipe it away), reopen it and come straight here. Tap{" "}
-          <b>Start: spoken questions</b>, then don&apos;t touch the screen.
+          <b>Start: on-screen questions</b>. The questions appear in the box; nothing is spoken.
         </li>
         <li>
-          Each time the box below turns green and says <b>Listening – speak now</b>, say the next word:{" "}
-          <b>John, Paul, Mary, Sarah</b>, then <b>stop</b>. If it says it didn&apos;t catch you, say the same word again.
+          Close and reopen Dispatch, then tap <b>Start: on-screen + beep</b>. Same, but it beeps when it&apos;s your
+          turn.
         </li>
         <li>
-          Close and reopen Dispatch again, then tap <b>Start: on-screen questions</b>. The questions appear in the box
-          instead of being spoken. Answer the same way.
+          Close and reopen Dispatch, then tap <b>Start: spoken questions</b>. Dispatch asks out loud.
         </li>
-        <li>If you have time, do steps 2 to 4 once more. The problem comes and goes.</li>
         <li>
           Tap <b>Copy all runs</b> and paste them to Claude.
         </li>
@@ -1041,11 +1107,14 @@ function HandsFreeTest({ env, onInfo }: { env: Env; onInfo: (t: string) => void 
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => void run("spoken")} disabled={running} className="btn-primary">
-          Start: spoken questions
-        </button>
         <button onClick={() => void run("screen")} disabled={running} className="btn-primary">
           Start: on-screen questions
+        </button>
+        <button onClick={() => void run("beep")} disabled={running} className="btn-primary">
+          Start: on-screen + beep
+        </button>
+        <button onClick={() => void run("spoken")} disabled={running} className="btn-primary">
+          Start: spoken questions
         </button>
       </div>
       {runs.length > 0 && !running && (
