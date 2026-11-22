@@ -56,12 +56,16 @@ The app calls the people you delegate to **Delegates**. You set them up once und
 | Role | e.g. "EA", "Head of Ops". Shown in the people list; would give AI drafting context later |
 | Email | Required |
 | Also known as | Nicknames or alternative pronunciations, e.g. "Pree", to help speech recognition |
-| Is EA | Flag. No special routing in the MVP |
-| Active | Hide people who've left without losing their history |
+| Is EA | Flag. No special routing in the MVP. Not built yet: Role covers it for now |
+| Active | Hide people who've left without losing their history. Shown as **Still delegating to them** when editing; people who've left are listed under **No longer delegating to** |
+
+Built in Phase 2 (decision 39): name and email are needed; role, full name and also known as are optional, under **More details**. Lists saved before Phase 2 still load.
 
 Rules:
-- Only people on the list can be owners or CCs. If the note names someone who isn't on the list, Dispatch asks you to pick an existing person or add them (name and email) on the spot.
-- If a name matches more than one person, Dispatch asks which one you meant.
+- Only people on the list can be owners or CCs. If the note names someone who isn't on the list, Dispatch asks you to pick an existing person or add them (name and email) on the spot. When the name was spoken, picking someone also saves it as one of their "also known as" names, so a name speech recognition gets wrong ("Maria" for "Priya") works from then on.
+- Names match on name, full name and also known as; a surname alone works too ("Smith"). Words around a name ("it's Priya", "give it to Tom please") are ignored.
+- If a name matches more than one person, Dispatch asks which one you meant: "“Tom” could be Tom Jones or Tom Smith. Say their full name, or tap the one you mean." Wherever two current delegates share a name, they're shown by full name (or with their role or email).
+- People you no longer delegate to aren't offered or matched. Saying their name tells you where to bring them back.
 
 ## 5. Core flow
 
@@ -363,6 +367,7 @@ For now, everything runs on free tiers.
 | 36 | Under each question, two voice buttons side by side: **Speak this answer** (just this one) and **Hands-free** (the mic stays on for the whole note), so you choose how to answer from the first question. The Speak prompts setting is shown as **Read questions aloud**, so it isn't confused with Speak this answer | You (22 Nov) |
 | 37 | A shorter capture: no title question (the subject uses the start of the action); **What needs doing?** comes straight after the owner; **Why does it matter?** and **What does done look like?** are optional (skip by voice or tap); **When is it due?** is only asked if no deadline was said in the answers, and one that was said is shown on the next screen, where it can be changed. Capture stays one question at a time, not one free-form answer (that's what AI drafting would bring, §10.4) | You (22 Nov) |
 | 38 | Bank holidays (Phase 2): the gov.uk England & Wales list is built into the app and refreshed weekly through the app's own server (`/api/bank-holidays`, cached for a week), then saved on the device. "End of the week" means the week's last working day, so it's Thursday when Friday is Good Friday, rather than being moved to the Tuesday after Easter | Claude, following §7 (22 Nov) |
+| 39 | Delegates (Phase 2): role, full name, also known as and active, as in §4 (Is EA left for later; Role covers it). A spoken name that isn't recognised offers **Did you mean someone on your list?**, and tapping someone saves that name to their also known as, so Dispatch learns how speech recognition hears your team | You (22 Nov, "yes" to the Phase 2 plan) |
 
 ## 16. Open questions
 

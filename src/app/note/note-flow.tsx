@@ -14,7 +14,7 @@ import { END_OF_DAY, findDeadlineIn, formatDeadline, parseDeadline, withoutPhras
 import { buildDraft, groupByOwner, titleFor, type CapturedAction, type EmailDraft } from "@/lib/email";
 import { readLocal, writeLocal } from "@/lib/local";
 import { NOTE_KEY } from "@/lib/note-progress";
-import { makePerson, matchPeople, savePeople, type Person } from "@/lib/people";
+import { displayName, isActive, makePerson, matchPeople, nameAsHeard, savePeople, withAka, type Person } from "@/lib/people";
 import { usePeople } from "@/lib/use-local";
 import { loadSettings, saveSettings, type Settings } from "@/lib/settings";
 import { canListen, canSpeak, isIPhone, speak, stopSpeaking, VoiceSession } from "@/lib/voice";
@@ -98,7 +98,10 @@ function spokenDeadline(at: Date) {
 
 /** What Dispatch says aloud for the current question, when Speak questions is on. */
 function questionFor(n: Note, people: Person[]): string {
-  const name = (id: string) => people.find((p) => p.id === id)?.name ?? "this person";
+  const name = (id: string) => {
+    const p = people.find((q) => q.id === id);
+    return p ? displayName(p, people) : "this person";
+  };
   switch (n.step) {
     case "owner":
       return n.actions.length ? "Who owns the next action?" : "Who owns this action?";
@@ -277,6 +280,12 @@ export function NoteFlow() {
   const go = (step: Step) => setNote((n) => ({ ...n, step }));
   const answer = (patch: Partial<Answers>) => setNote((n) => ({ ...n, answers: { ...n.answers, ...patch } }));
   const personById = (id: string) => people.find((p) => p.id === id);
+  const current = people.filter(isActive); // the delegates offered in notes
+  /** A delegate's name as shown: "Tom Jones" when there are two Toms. */
+  const nameOf = (id: string, fallback = "?") => {
+    const p = personById(id);
+    return p ? displayName(p, people) : fallback;
+  };
   const ownerIds = [...groupByOwner(note.actions).keys()];
   const hasProgress = note.actions.length > 0 || note.step !== "owner" || a.ownerId !== "";
 
@@ -426,6 +435,24 @@ export function NoteFlow() {
     );
   }
 
+  /** Two Toms (§4): "“Tom” could be Tom Jones or Tom Smith. Say their full name, or tap the one you mean." */
+  function whichOne(said: string, found: Person[], ppl: Person[]) {
+    const names = found.map((p) => displayName(p, ppl));
+    const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} or ${names.at(-1)}` : names[0];
+    const byFullName = found.some((p) => p.fullName);
+    return `“${said.trim()}” could be ${list}. ${byFullName ? "Say their full name, or tap" : "Tap"} the one you mean.`;
+  }
+
+  /** Tapped who an unrecognised spoken name meant: remember it as one of their names, and choose them (decision 39). */
+  function chooseAndRemember(p: Person, heardAs: string) {
+    savePeople(people.map((q) => (q.id === p.id ? withAka(q, heardAs) : q))); // every screen updates from this
+    setAdding(false);
+    setNewName("");
+    setVoiceMessage("");
+    setHeard("");
+    setNote((n) => ({ ...n, answers: { ...n.answers, ownerId: p.id }, step: "action" }));
+  }
+
   /**
    * Applies a spoken answer to the current question. Returns null if it was used, or what to tell you if not.
    * Reads the latest note from a ref, because answers arrive after the render that started listening.
@@ -454,17 +481,19 @@ export function NoteFlow() {
           setNote((m) => ({ ...m, answers: { ...m.answers, ownerId: found[0].id }, step: "action" }));
           return null;
         }
-        if (found.length > 1) return `More than one person matches "${text}". Tap the one you mean.`;
-        // Not a delegate yet: offer to add them, with the name filled in.
-        const name = text
-          .replace(/[.,!?]/g, "")
-          .split(/\s+/)
-          .filter(Boolean)
-          .map((w) => w[0].toUpperCase() + w.slice(1))
-          .join(" ");
+        if (found.length > 1) return whichOne(text, found, ppl);
+        // Someone you no longer delegate to: say so, rather than offering to add them again.
+        const former = matchPeople(
+          ppl.filter((p) => !isActive(p)).map((p) => ({ ...p, active: true })),
+          text
+        );
+        if (former.length)
+          return `${former[0].name} is under "No longer delegating to" on the Delegates page. Bring them back there, or say another name.`;
+        // Not recognised: offer to add them, with the name filled in, or to tap who was meant (decision 39).
+        const name = nameAsHeard(text) || text;
         setNewName(name);
         setAdding(true);
-        return `${name} isn't one of your delegates yet. Add them below, or say another name.`;
+        return `${name} isn't one of your delegates. Add them below, or tap who you meant.`;
       }
       case "action":
       case "context":
@@ -503,6 +532,7 @@ export function NoteFlow() {
         for (const name of splitNames(text)) {
           const found = matchPeople(others, name);
           if (found.length === 1) ids.push(found[0].id);
+          else if (found.length > 1) return whichOne(name, found, ppl);
           else unknown.push(name);
         }
         if (unknown.length || !ids.length)
@@ -655,9 +685,10 @@ export function NoteFlow() {
       body = (
         <>
           <Question ask="Who owns this action?" hint="Each action has one owner. You can copy other people in later." />
-          {people.length > 0 && (
+          {/* Hidden while "Did you mean someone on your list?" offers the same people (Cancel brings them back). */}
+          {current.length > 0 && !newName && (
             <div className="flex flex-wrap gap-2">
-              {people.map((p) => (
+              {current.map((p) => (
                 <Chip
                   key={p.id}
                   selected={a.ownerId === p.id}
@@ -668,22 +699,37 @@ export function NoteFlow() {
                     setNote((n) => ({ ...n, answers: { ...n.answers, ownerId: p.id }, step: "action" }));
                   }}
                 >
-                  {p.name}
+                  {displayName(p, people)}
                 </Chip>
               ))}
             </div>
           )}
-          {adding || people.length === 0 ? (
+          {/* A spoken name that wasn't recognised may be a delegate, misheard: tapping them teaches Dispatch. */}
+          {newName && current.length > 0 && (
+            <div className="space-y-2 rounded-[18px] border-2 border-ink bg-periwinkle p-4">
+              <p className="font-semibold">Did you mean someone on your list?</p>
+              <p className="text-sm text-dim">Tap them, and Dispatch will know &ldquo;{newName}&rdquo; means them from now on.</p>
+              <div className="flex flex-wrap gap-2">
+                {current.map((p) => (
+                  <Chip key={p.id} onClick={() => chooseAndRemember(p, newName)}>
+                    {displayName(p, people)}
+                  </Chip>
+                ))}
+              </div>
+            </div>
+          )}
+          {adding || current.length === 0 ? (
             <div className="space-y-3 rounded-[18px] border-2 border-ink bg-white p-4 shadow-pop">
               <p className="font-semibold">
-                {newName ? `Add ${newName} as a new delegate?` : people.length ? "New delegate" : "Add your first delegate"}
+                {newName ? `Or add ${newName} as a new delegate` : current.length ? "New delegate" : "Add your first delegate"}
               </p>
               <PersonForm
                 key={newName}
-                initial={newName ? { id: "", name: newName, email: "" } : undefined}
+                initial={newName ? { name: newName } : undefined}
+                others={people}
                 submitLabel="Add and choose"
-                onSubmit={(name, email) => {
-                  const person = makePerson(name, email);
+                onSubmit={(details) => {
+                  const person = makePerson(details);
                   savePeople([...people, person]); // every screen updates from this
                   setAdding(false);
                   setNewName("");
@@ -692,7 +738,7 @@ export function NoteFlow() {
                   setNote((n) => ({ ...n, answers: { ...n.answers, ownerId: person.id }, step: "action" }));
                 }}
                 onCancel={
-                  people.length
+                  current.length
                     ? () => {
                         setAdding(false);
                         setNewName("");
@@ -733,7 +779,7 @@ export function NoteFlow() {
       body = (
         <>
           <p className="text-[15px]">
-            For <b>{personById(a.ownerId)?.name ?? "?"}</b>
+            For <b>{nameOf(a.ownerId)}</b>
             {step !== "action" && a.action.trim() && <> · {titleFor(a)}</>}
           </p>
           <Question ask={q.ask} hint={q.hint} />
@@ -762,7 +808,7 @@ export function NoteFlow() {
       body = (
         <>
           <p className="text-[15px]">
-            For <b>{personById(a.ownerId)?.name ?? "?"}</b> · {titleFor(a)}
+            For <b>{nameOf(a.ownerId)}</b> · {titleFor(a)}
           </p>
           <Question ask="When is it due?" hint="e.g. Friday, tomorrow at 3pm, in 3 days, 25 November. With no time, it's 17:30." />
           <input
@@ -803,7 +849,7 @@ export function NoteFlow() {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold">{titleFor(act)}</span>
                     <span className="block text-sm text-dim">
-                      {personById(act.ownerId)?.name ?? "?"} · Due {formatDeadline(new Date(act.deadline))}
+                      {nameOf(act.ownerId)} · Due {formatDeadline(new Date(act.deadline))}
                     </span>
                     {/* Decision 37: a deadline taken from what you said, shown so you can check it. */}
                     {act.saidAs && (
@@ -882,21 +928,21 @@ export function NoteFlow() {
       const selected = note.cc[ownerId] ?? [];
       const toggle = (id: string) =>
         setNote((n) => {
-          const current = n.cc[ownerId] ?? [];
-          const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+          const was = n.cc[ownerId] ?? [];
+          const next = was.includes(id) ? was.filter((x) => x !== id) : [...was, id];
           return { ...n, cc: { ...n.cc, [ownerId]: next } };
         });
-      const others = people.filter((p) => p.id !== ownerId);
+      const others = current.filter((p) => p.id !== ownerId);
       body = (
         <>
           <Question
-            ask={`Anyone to copy in on ${personById(ownerId)?.name ?? "this"}'s email?`}
+            ask={`Anyone to copy in on ${nameOf(ownerId, "this")}'s email?`}
             hint={others.length ? "Tap everyone to copy in." : "You have no other delegates yet."}
           />
           <div className="flex flex-wrap gap-2">
             {others.map((p) => (
               <Chip key={p.id} selected={selected.includes(p.id)} onClick={() => toggle(p.id)}>
-                {p.name}
+                {displayName(p, people)}
               </Chip>
             ))}
           </div>
@@ -931,7 +977,7 @@ export function NoteFlow() {
       body = (
         <>
           <Question
-            ask={`${owner?.name ?? "Their"}'s email`}
+            ask={`${owner ? displayName(owner, people) : "Their"}'s email`}
             hint="Tap the copy icon on each part, then paste it into a new email in Outlook. You can edit the subject and body first."
           />
           <div className="space-y-4">
@@ -964,7 +1010,7 @@ export function NoteFlow() {
           <div className="flex flex-col gap-3">
             {nextEmail ? (
               <button onClick={() => setNote((n) => ({ ...n, emailIndex: n.emailIndex + 1 }))} className="btn-primary">
-                Next: {personById(nextEmail.ownerId)?.name ?? "next"}&apos;s email
+                Next: {nameOf(nextEmail.ownerId, "next")}&apos;s email
               </button>
             ) : (
               <button onClick={finish} className="btn-primary">
