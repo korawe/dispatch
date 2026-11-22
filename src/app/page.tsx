@@ -10,9 +10,14 @@ export default function Home() {
         <p className="opacity-80">Turn a quick voice note into clear delegation emails.</p>
       </div>
       <p className="text-sm opacity-70">Phase 0: checking what your iPhone and desktop can do before we build.</p>
-      <Link href="/spike" className="btn-primary">
-        Open the Phase 0 tests
-      </Link>
+      <div className="flex flex-col items-center gap-3">
+        <Link href="/spike" className="btn-primary">
+          Open the Phase 0 tests
+        </Link>
+        <Link href="/looks" className="btn-secondary">
+          See the look &amp; feel options
+        </Link>
+      </div>
     </main>
   );
 }
