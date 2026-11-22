@@ -1,6 +1,6 @@
 # Dispatch: Product & Build Spec (MVP)
 
-*Version 0.2 · 16 Nov 2026 · Status: all decisions confirmed; ready for Phase 0*
+*Version 0.3 · 22 Nov 2026 · Status: Phase 0 in progress; look and feel (decision 31) and hands-free (decision 32) decided*
 
 ---
 
@@ -75,7 +75,7 @@ Record → Transcribe → Draft → Clarify → Choose → (Read back | Review) 
    - **Unknown or ambiguous person:** see §4.
    - **CC prompt, for each email:** "Anyone to copy in on Priya's email?" People you named as a reference are suggested as CCs. You confirm, add or say "no".
 5. **Choose:** "Read it back, review on screen, or just send?"
-   - **Read back:** Dispatch speaks each email aloud. You correct it by voice ("change the deadline to Thursday", "add Tom on copy", "drop the second action") or switch to screen editing. When you're done, it moves to hand-off.
+   - **Read back:** Dispatch speaks each email aloud. You correct it by voice ("change the deadline to Thursday", "add Tom on copy", "drop the second action"), tapping the mic button before each correction on iPhone (§9), or switch to screen editing. When you're done, it moves to hand-off.
    - **Review:** the drafts are shown on screen with every field editable. You can also hold the mic button to dictate a correction.
    - **Just send:** goes straight to hand-off.
 6. **Hand off.** In the MVP, "send" means you copy the email into Outlook and send it yourself.
@@ -176,13 +176,14 @@ Two tabs: **Open** and **Completed**.
 ## 9. Voice and hands-free mode
 
 ### What it does
-- After you tap to start, Dispatch can run the whole flow by voice. It **speaks** its questions, the "read back / review / send" choice and the read-back, and **listens** for your answers.
+- After you tap to start, Dispatch can run the whole flow by voice. How it talks to you depends on the **Speak prompts** setting (decision 32):
+  - **Speak prompts on:** Dispatch **speaks** its questions, the "read back / review / send" choice and the read-back. You **tap the big mic button once** to answer each time. This is an iPhone limit (test 6).
+  - **Speak prompts off:** the questions and choices show on screen, and the mic stays on for the whole note, so you answer with **no taps**. Good at your desk, or whenever you can glance at the screen.
 - Example commands: "read it back", "review", "send", "change the deadline to Thursday", "add Tom on copy", "remove the second action", "cancel", "next".
 - The on-screen controls are always there too. You can switch between voice and touch at any point.
-- A setting, **Speak prompts** (on/off), lets you keep it silent at your desk, with prompts shown on screen only.
 
 ### iPhone limits (to confirm in the Phase 0 spike, §14)
-- **Starting needs a tap.** iOS needs a tap before a web app can use the microphone or speak, so each session starts with a tap. After that, the flow can be hands-free.
+- **Starting needs a tap, and so does each spoken answer when Dispatch speaks.** iOS needs a tap before a web app can use the microphone or speak, so each session starts with a tap. Once Dispatch's voice has played, the built-in speech recognition only hears you again if a tap starts it (test 6). With Speak prompts off, the mic stays on and no more taps are needed.
 - **The app must be open and on screen.** It won't work from the lock screen or in the background. Dispatch tries to keep the screen awake during a session.
 - **No "Hey Siri, Dispatch" directly.** We'll check whether an iOS Shortcut ("Hey Siri, Dispatch") can open the installed app. If not, the home-screen icon is the way in.
 - **Microphone permission:** home-screen web apps on iOS can ask for mic permission more often than you'd expect. The spike checks how often.
@@ -190,7 +191,7 @@ Two tabs: **Open** and **Completed**.
 
 Anything beyond these limits, such as lock-screen recording or a true "Hey Siri", would need a native app (out of scope).
 
-### Phase 0 test results (iPhone, 16 Nov 2026)
+### Phase 0 test results (iPhone, 16–22 Nov 2026)
 
 | Check | Result | What it means |
 |---|---|---|
@@ -200,11 +201,11 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
 | Built-in speech recognition | ✓ Worked on re-test, and in the detailed test (4b). The first attempt failed ("aborted"); the cause is unknown | Use it, because it's free (§10.3). Keyboard dictation is the fallback |
 | Read aloud (built-in voices) | ✓ Works with silent mode off; ✗ muted when the phone is on silent | Neither workaround (test 5b, A and B) gets round silent mode |
 | Recorded voice clip (as a cloud voice would deliver) | ✓ Plays with silent mode on | A cloud text-to-speech service works even when the phone is on silent |
-| Hands-free conversation | ◐ Works with no taps after closing and reopening the app, with silent off: question spoken → mic listens → your words → spoken reply. Two earlier runs failed (the question wasn't heard), probably from leftover state from earlier tests. Two issues: the iPhone doesn't stop listening when you stop talking (it ran to the 8-second cutoff), and the mic takes about 1.8s to start after the question ends | Dispatch detects the pause itself (1.5s). ✓ Re-test: two turns worked, the reply gap felt "about right", and the mic now starts about 0.5s after the question ends. But the third turn ("stop") heard nothing. ✗ The next run (8 turns, with retry) heard nothing on turns 1 and 2: the mic was capturing audio, but no words came through. So built-in recognition in a hands-free loop is **unreliable so far**, with the cause unknown. Test 6, rounds 1–3 (22 Nov, 7 runs), found the likely cause. Whether the question is spoken, shown on screen or followed by a beep makes no difference. What matters is what came just before. Every failure started within about a minute of Dispatch ending a turn with stop() after hearing words, and the state lasted between about 1½ and 4 minutes, even after reopening the app, so it seems to sit in iOS's speech service. The first run after a long gap always worked (3 of 3), and the one turn the iPhone ended by itself was followed by a working turn. In the failing state the mic reports "started" almost instantly (0–0.1s, against 0.3–1.5s when working), then no words come and iOS reports "aborted". Ruled out: the question format, leftover state inside the app, words arriving late, and the screen locking. Round 4 (one word per turn) ruled out how the turn ends: the iPhone ended turn 1 itself ("John"), and turn 2, starting 3.6s later, still heard nothing. So the pattern is that after a turn that heard words, the next new listening session usually hears nothing (4 of 5 times today), for minutes. A quick mic start still flags it: 0.1–0.3s on failing turns, against 1.2s on the turn that worked. A later run of the same test heard 5 words in a row, but Dispatch's voice wasn't audible in it (silent was off). Around 10:50 the phone's audio stuck completely: no voice, and the mic failed with "audio-capture" in test 4b. Restarting the iPhone fixed it. Round 5 (one listening session for the whole conversation): ✓ with on-screen questions, 5 of 5 words, smooth turn-taking; ✗ with spoken questions: the voice was audible, but the mic heard nothing at all, not even the voice. So the built-in recognition works reliably until Dispatch's voice plays out loud. **A working hands-free mode exists: one session with on-screen questions.** Round 6: setting the page's audio session to "play-and-record" up front didn't help. "Say John" was heard, because the voice ended as the mic started; once "Now say Paul" played with the mic on, the mic heard nothing, and the voice never reported that it had finished. Next (round 7): spoken questions where each answer starts with a tap (taps have worked all day in test 4), and a check that an ordinary recording (the way a voice memo or a cloud speech service would capture audio) still hears you after the voice plays |
+| Hands-free conversation (test 6, 7 rounds, 16–22 Nov) | ✓ Two free ways work, 5 of 5 words each: **spoken questions with a tap per answer** (round 7), and **the mic on for the whole note with questions on screen, no taps** (round 5). ✗ Spoken questions with no taps: once Dispatch's voice plays out loud, the built-in recognition stops hearing anything, often for minutes and even after reopening the app | Decision 32: the Speak prompts setting picks between the two (§9). A listen started by a tap works even straight after the voice. These didn't help: changing how a turn ends, waiting between turns, or telling Safari the page plays and records at once ("play-and-record"). Turn-taking: the iPhone ends a turn about 1.6s after you stop talking. Once, the phone's audio stuck completely (no voice, mic "audio-capture" error) until the iPhone was restarted. An ordinary recording made while the voice played came out empty, so it's untested whether a paid cloud speech service could manage spoken questions with no taps |
 | Notifications | ✓ Works (test notification arrived) | Morning summary is feasible |
 | App icon badge | ✓ Works | |
 | Copy into Outlook | ✓ Works | Copy-button hand-off is fine |
-| Keep screen awake | Not yet tested | |
+| Keep screen awake | ◐ The iPhone grants the request (test 6 logs "screen kept awake") | Not yet checked that the screen stays on beyond the auto-lock time (test 9) |
 | Siri Shortcut | Not yet tested | |
 | Desktop install | Not yet tested | |
 
@@ -294,7 +295,7 @@ Cost levers if needed: caching (already planned) and lower effort. Switching to 
 | **1. Capture → draft** | Record, transcribe, one AI call, drafts shown on screen, copy buttons | A note becomes correct drafts, ready to paste into Outlook, on both devices |
 | **2. People and clarifying** | People list, unknown or ambiguous name handling, missing owner and deadline questions, CC prompt, deadline rules and bank holidays | No draft can reach hand-off without an owner and a valid deadline |
 | **3. Actions list** | Open and Completed lists, by deadline and by person, complete, reopen, edit deadline, delete, undo after hand-off | Full lifecycle of an action works |
-| **4. Voice flow** | Spoken prompts, read-back, voice corrections, read back / review / send choice, Speak prompts setting | A full note can be done hands-free after one tap |
+| **4. Voice flow** | Spoken prompts, read-back, voice corrections, read back / review / send choice, Speak prompts setting | A full note can be done by voice: with Speak prompts on, one tap per answer; with them off, no taps after the first |
 | **5. Reminders** | 09:00 weekday summary push, app badge, overdue banner | Overdue actions are surfaced correctly, including across a clock change |
 | **6. Two-week trial** | Daily use. Tune email format and prompts. Measure cost and time per note | Success measures in §2 reviewed |
 
@@ -339,10 +340,11 @@ Cost levers if needed: caching (already planned) and lower effort. Switching to 
 | 29 | Speech-to-text must be free (zero cost) | You (after Phase 0 tests) |
 | 30 | Speech-to-text uses the built-in browser recognition, with keyboard dictation as the fallback | Follows from 29 and the re-test of test 4 |
 | 31 | Look and feel: "Pulse" (cobalt and sunshine yellow, navy outlines, solid drop shadows, Bricolage Grotesque and Outfit) with the speech bubble and sound wave from "Aurora" as the logo, in Pulse colours (a sunshine-yellow bubble with a cobalt wave on a cobalt tile, not Aurora's purple). Applied to the test page, home page and app icon first; the five options are on `/looks` | You (22 Nov) |
+| 32 | Hands-free on iPhone uses the Speak prompts setting. On: Dispatch speaks, and you tap once per answer. Off: the mic stays on and the questions show on screen, with no taps. Both are free and worked 5 of 5 in test 6. Spoken questions with no taps would need a paid speech service, so they aren't pursued | You (22 Nov, after test 6) |
 
 ## 16. Open questions
 
 1. ~~Speech-to-text provider~~: built-in recognition (decision 30), subject to the AI policy review.
 2. Can a Siri Shortcut open the installed app directly? (Phase 0.)
-3. Hands-free: one listening session with on-screen questions works (test 6, round 5). Once Dispatch's voice plays out loud, the built-in recognition stops hearing anything, and declaring "play-and-record" doesn't fix it (round 6). Being tested (round 7): does a tap per answer work after the voice? Would an ordinary recording (for a paid cloud speech service, which decision 29 rules out today) survive the voice? This affects the spoken read-back with voice corrections too (§5).
+3. ~~Hands-free on iPhone~~: decided after test 6 (decision 32). Speak prompts on means a tap per answer; off means no taps, with the questions on screen.
 4. Which AI model drafts the emails, given the zero-cost wish? Decision 27 says Opus 5.5 (paid). The alternatives are Haiku 5.5 (much cheaper) or no paid AI at all (Claude's API isn't free).
