@@ -1,10 +1,10 @@
-import Image from "next/image";
 import Link from "next/link";
+import { AuroraIcon } from "@/components/brand";
 
 export default function Home() {
   return (
     <main className="mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center gap-6 px-4 py-10 text-center">
-      <Image src="/icon-192.png" alt="" width={96} height={96} className="rounded-2xl" priority />
+      <AuroraIcon size={96} />
       <div className="space-y-2">
         <h1 className="text-3xl font-semibold">Dispatch</h1>
         <p className="opacity-80">Turn a quick voice note into clear delegation emails.</p>
