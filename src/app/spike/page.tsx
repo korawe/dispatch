@@ -3,6 +3,7 @@
 // Phase 0 spike: checks what an installed web app can do on iPhone (and desktop)
 // before we build on it. See DispatchSpec.md §9 and §14.
 
+import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AppIcon } from "@/components/brand";
 
@@ -194,9 +195,14 @@ function Spike() {
   return (
     <main className="mx-auto w-full max-w-xl space-y-6 px-4 py-6">
       <header className="space-y-3">
-        <div className="flex items-center gap-2.5">
-          <AppIcon size={40} outlined />
-          <span className="font-display text-[24px] leading-none font-extrabold tracking-tight">dispatch</span>
+        <div className="flex items-center justify-between gap-3">
+          <Link href="/" className="flex items-center gap-2.5" aria-label="Dispatch home">
+            <AppIcon size={40} outlined />
+            <span className="font-display text-[24px] leading-none font-extrabold tracking-tight">dispatch</span>
+          </Link>
+          <Link href="/" className="btn-secondary">
+            ← Home
+          </Link>
         </div>
         <h1 className="pt-2 font-display text-[34px] leading-none font-extrabold tracking-tight">Phase 0 tests</h1>
         <p className="text-[15px] leading-relaxed text-dim">
@@ -242,6 +248,10 @@ function Spike() {
           className="h-64 w-full rounded-xl border-2 border-ink bg-white p-2 font-mono text-xs text-ink"
         />
       </section>
+
+      <Link href="/" className="btn-secondary w-full">
+        ← Back to Dispatch
+      </Link>
     </main>
   );
 }

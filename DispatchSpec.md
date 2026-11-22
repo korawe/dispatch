@@ -209,7 +209,7 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
 | Install to Home Screen | ✓ Works | On newer iOS, Share sits under the **⋯** button in Safari |
 | Microphone recording | ✓ Works | Records in a format cloud speech-to-text services accept |
 | Mic permission after reopening | ✓ Remembered | No repeated prompts |
-| Built-in speech recognition | ✓ Worked on re-test, and in the detailed test (4b). The first attempt failed ("aborted"); the cause is unknown | Use it, because it's free (§10.3). Keyboard dictation is the fallback |
+| Built-in speech recognition | ✓ Worked on re-test, and in the detailed test (4b). The first attempt failed ("aborted"); the cause is unknown. ✓ Windows laptop, Chrome (22 Nov): accurate, but it stopped listening before the end of a longer sentence, most likely at the first pause | Use it, because it's free (§10.3). Keyboard dictation is the fallback (Windows key + H on the laptop). Voice capture keeps the mic open (continuous mode) and ends a turn after about 1.5s of silence, so pauses don't cut you off |
 | Read aloud (built-in voices) | ✓ Works with silent mode off; ✗ muted when the phone is on silent | Neither workaround (test 5b, A and B) gets round silent mode |
 | Recorded voice clip (as a cloud voice would deliver) | ✓ Plays with silent mode on | A cloud text-to-speech service works even when the phone is on silent |
 | Hands-free conversation (test 6, 7 rounds, 16–22 Nov) | ✓ Two free ways work, 5 of 5 words each: **spoken questions with a tap per answer** (round 7), and **the mic on for the whole note with questions on screen, no taps** (round 5). ✗ Spoken questions with no taps: once Dispatch's voice plays out loud, the built-in recognition stops hearing anything, often for minutes and even after reopening the app | Decision 32: the Speak prompts setting picks between the two (§9). A listen started by a tap works even straight after the voice. These didn't help: changing how a turn ends, waiting between turns, or telling Safari the page plays and records at once ("play-and-record"). Turn-taking: the iPhone ends a turn about 1.6s after you stop talking. Once, the phone's audio stuck completely (no voice, mic "audio-capture" error) until the iPhone was restarted. An ordinary recording made while the voice played came out empty, so it's untested whether a paid cloud speech service could manage spoken questions with no taps |
@@ -218,7 +218,7 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
 | Copy into Outlook | ✓ Works | Copy-button hand-off is fine |
 | Keep screen awake | ◐ The iPhone grants the request (test 6 logs "screen kept awake") | Not yet checked that the screen stays on beyond the auto-lock time (test 9) |
 | Siri Shortcut | Not yet tested | |
-| Desktop install | Not yet tested | |
+| Desktop install (Windows laptop, 22 Nov) | ✓ Works: installed from Chrome, with its own window, a desktop icon and a taskbar pin | Edge, which shares Chrome's engine, also confirms the site meets its install requirements. Phase 1's note flow also works at laptop size. Data isn't shared between devices until Phase 3 (decision 34), so the people list is entered on each device |
 
 ## 10. Platform and technology
 
@@ -241,8 +241,8 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
   - (b) **A cloud speech-to-text API:** records audio and sends it to a transcription service. More consistent across phone and desktop. Usually priced per minute of audio.
   - **Decided after Phase 0 testing:** use (a), because speech-to-text must be free (decision 29) and it worked in the installed iPhone app on re-test (§9).
     - If it fails, the fallback is the iPhone keyboard's dictation (the mic key), which is also free.
-    - Desktop is still to be tested (test 12).
-    - For the IT check (§12): built-in recognition comes from Apple on iPhone and Microsoft in Edge, so audio may be processed on their servers.
+    - Desktop: works in Chrome on Windows (22 Nov). It ends a single-phrase listen at the first pause, so Dispatch listens continuously and detects the end of each answer itself.
+    - For the IT check (§12): built-in recognition comes from Apple on iPhone, Google in Chrome and Microsoft in Edge, so audio may be processed on their servers. Which desktop browser you install Dispatch from decides which company that is.
     - (b) remains an option later.
 - **Text-to-speech** (read-back and prompts): **decided, the browser's built-in voices (free).**
   - On iPhone they're muted when the phone is on silent, so you switch silent off to hear Dispatch.
@@ -286,7 +286,7 @@ Anything beyond these limits, such as lock-screen recording or a true "Hey Siri"
 
 - **AI policy:** your company has an AI policy, and you'll agree Dispatch with IT before using it beyond testing. Until then:
   - **Test with non-sensitive notes.** Avoid HR or performance matters, client names and personal data.
-  - The review should cover where speech-to-text (and Claude, if AI drafting is added) processes data, and what each provider keeps. With no AI for now (decision 33), your notes go only to the built-in speech recognition: Apple on iPhone, Microsoft in Edge.
+  - The review should cover where speech-to-text (and Claude, if AI drafting is added) processes data, and what each provider keeps. With no AI for now (decision 33), your notes go only to the built-in speech recognition: Apple on iPhone, Google in Chrome, Microsoft in Edge.
 - **Single user:** only your email can sign in. All data is behind login and row-level security.
 - **Secrets:** API keys live only in Vercel and Supabase server settings, never in the app code or the browser.
 - **Hosting terms:** Vercel's free (Hobby) plan is meant for personal, non-commercial use. If Dispatch becomes a work tool, check the plan with IT at the same time as the AI policy.

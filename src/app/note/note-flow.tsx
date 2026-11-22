@@ -2,17 +2,21 @@
 
 // A note, start to finish (DispatchSpec.md §5, decision 33): Dispatch asks for each action's owner, title,
 // context, action, outcome and deadline; then who to copy in on each email; then shows the emails with copy
-// buttons for Outlook. Phase 1: answers are typed (the keyboard's dictation key works too); voice comes next.
-// Progress is saved on the device, so closing the app mid-note loses nothing.
+// buttons for Outlook. Answers can be typed or spoken (decision 32): "Answer by voice" listens for one answer;
+// with Speak questions on, Dispatch reads each question aloud; with it off, "Go hands-free" keeps the mic on
+// for the whole note. Progress is saved on the device, so closing the app mid-note loses nothing.
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { TopBar } from "@/components/top-bar";
 import { formatDay, formatDeadline, parseDeadline, type Deadline } from "@/lib/dates";
 import { buildDraft, groupByOwner, tidyTitle, type CapturedAction, type EmailDraft } from "@/lib/email";
 import { readLocal, writeLocal } from "@/lib/local";
-import { loadPeople, makePerson, savePeople, type Person } from "@/lib/people";
+import { loadPeople, makePerson, matchPeople, savePeople, type Person } from "@/lib/people";
+import { loadSettings, saveSettings, type Settings } from "@/lib/settings";
+import { canListen, canSpeak, isIPhone, speak, stopSpeaking, VoiceSession } from "@/lib/voice";
+import { isBack, isNoOne, splitNames, yesOrNo } from "@/lib/voice-answers";
 import { inputClass, PersonForm } from "../people/people-manager";
 
 type Step = "owner" | "title" | "context" | "action" | "outcome" | "deadline" | "another" | "cc" | "drafts";
@@ -61,6 +65,32 @@ const QUESTIONS: Record<TextStep, { ask: string; hint: string; multiline: boolea
     next: "deadline",
   },
 };
+
+// Where "back" (said or tapped) goes from each answer.
+const BACK: Partial<Record<Step, Step>> = { title: "owner", context: "title", action: "context", outcome: "action", deadline: "outcome" };
+
+/** What Dispatch says aloud for the current question, when Speak questions is on. */
+function questionFor(n: Note, people: Person[]): string {
+  const name = (id: string) => people.find((p) => p.id === id)?.name ?? "this person";
+  switch (n.step) {
+    case "owner":
+      return n.actions.length ? "Who owns the next action?" : "Who owns this action?";
+    case "title":
+      return "Give it a short title.";
+    case "context":
+    case "action":
+    case "outcome":
+      return QUESTIONS[n.step].ask;
+    case "deadline":
+      return "When is it due?";
+    case "another":
+      return "Another action?";
+    case "cc":
+      return `Anyone to copy in on ${name([...groupByOwner(n.actions).keys()][n.ccIndex])}'s email?`;
+    case "drafts":
+      return "Your emails are ready to copy into Outlook.";
+  }
+}
 
 function Question({ ask, hint }: { ask: string; hint?: string }) {
   return (
@@ -136,6 +166,25 @@ export function NoteFlow() {
   const [pastOk, setPastOk] = useState(false);
   const [adding, setAdding] = useState(false);
 
+  // Voice (decision 32).
+  const [settings, setSettings] = useState<Settings>(loadSettings);
+  const [voiceOk] = useState(canListen);
+  const [speechOk] = useState(canSpeak);
+  const [armed, setArmed] = useState(false); // the iPhone only speaks once a tap has started it
+  const [handsFree, setHandsFree] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [heard, setHeard] = useState("");
+  const [voiceMessage, setVoiceMessage] = useState("");
+  const sessionRef = useRef<VoiceSession | null>(null);
+  const lastSpokenRef = useRef("");
+  // The latest note and people, for voice answers that arrive after a render.
+  const noteRef = useRef(note);
+  const peopleRef = useRef(people);
+  useEffect(() => {
+    noteRef.current = note;
+    peopleRef.current = people;
+  }, [note, people]);
+
   // Save progress on the device after every change.
   useEffect(() => writeLocal(NOTE_KEY, note), [note]);
 
@@ -146,26 +195,53 @@ export function NoteFlow() {
   const ownerIds = [...groupByOwner(note.actions).keys()];
   const hasProgress = note.actions.length > 0 || note.step !== "owner" || a.ownerId !== "";
 
+  // Speak each new question, when Speak questions is on and a tap has allowed it.
+  const question = questionFor(note, people);
+  const questionKey = `${note.actions.length}:${note.step}:${note.ccIndex}`;
+  useEffect(() => {
+    if (!settings.speakPrompts || !armed || lastSpokenRef.current === questionKey) return;
+    lastSpokenRef.current = questionKey;
+    void speak(question);
+  }, [settings.speakPrompts, armed, questionKey, question]);
+
+  // Hands-free: each new question starts a new answer.
+  useEffect(() => {
+    if (handsFree) sessionRef.current?.openWindow();
+  }, [handsFree, questionKey]);
+
+  // Stop listening and speaking when leaving the screen.
+  useEffect(
+    () => () => {
+      sessionRef.current?.stop();
+      stopSpeaking();
+    },
+    []
+  );
+
   function startAgain() {
     if (!confirm("Start again? This note's answers will be cleared.")) return;
+    stopHandsFree();
     setNote(emptyNote());
+    setDeadline(null);
+    setPastOk(false);
+  }
+
+  /** Adds the action being captured, with this deadline, and moves on to "Another action?". */
+  function addActionWith(d: Deadline) {
+    if (!("at" in d)) return;
+    const deadlineIso = d.at.toISOString();
+    setNote((n) => {
+      const { ownerId, title, context, action, outcome } = n.answers;
+      const captured: CapturedAction = { ownerId, title, context, action, outcome, deadline: deadlineIso };
+      return { ...n, actions: [...n.actions, captured], answers: emptyAnswers(), step: "another" };
+    });
     setDeadline(null);
     setPastOk(false);
   }
 
   function addAction() {
     if (!deadline || !("at" in deadline) || (deadline.kind === "past" && !pastOk)) return;
-    const action: CapturedAction = {
-      ownerId: a.ownerId,
-      title: a.title,
-      context: a.context,
-      action: a.action,
-      outcome: a.outcome,
-      deadline: deadline.at.toISOString(),
-    };
-    setNote((n) => ({ ...n, actions: [...n.actions, action], answers: emptyAnswers(), step: "another" }));
-    setDeadline(null);
-    setPastOk(false);
+    addActionWith(deadline);
   }
 
   function removeAction(index: number) {
@@ -176,18 +252,181 @@ export function NoteFlow() {
     });
   }
 
-  function buildEmails(cc: Record<string, string[]>): EmailDraft[] {
-    return [...groupByOwner(note.actions).entries()].flatMap(([ownerId, actions]) => {
-      const owner = personById(ownerId);
+  function buildEmails(n: Note, ppl: Person[]): EmailDraft[] {
+    const find = (id: string) => ppl.find((p) => p.id === id);
+    return [...groupByOwner(n.actions).entries()].flatMap(([ownerId, actions]) => {
+      const owner = find(ownerId);
       if (!owner) return [];
-      const ccPeople = (cc[ownerId] ?? []).map(personById).filter((p): p is Person => !!p);
+      const ccPeople = (n.cc[ownerId] ?? []).map(find).filter((p): p is Person => !!p);
       return [buildDraft(owner, actions, ccPeople)];
     });
   }
 
+  /** On to the next email's CC question, or to the finished emails after the last one. */
   function nextCc() {
-    if (note.ccIndex + 1 < ownerIds.length) setNote((n) => ({ ...n, ccIndex: n.ccIndex + 1 }));
-    else setNote((n) => ({ ...n, emails: buildEmails(n.cc), emailIndex: 0, copied: [], step: "drafts" }));
+    const current = noteRef.current;
+    const ppl = peopleRef.current;
+    const lastOne = current.ccIndex + 1 >= groupByOwner(current.actions).size;
+    if (lastOne) stopHandsFree(); // copying into Outlook needs taps anyway
+    setNote((n) =>
+      n.ccIndex + 1 < groupByOwner(n.actions).size
+        ? { ...n, ccIndex: n.ccIndex + 1 }
+        : { ...n, emails: buildEmails(n, ppl), emailIndex: 0, copied: [], step: "drafts" }
+    );
+  }
+
+  /**
+   * Applies a spoken answer to the current question. Returns null if it was used, or what to tell you if not.
+   * Reads the latest note from a ref, because answers arrive after the render that started listening.
+   */
+  function applyVoiceAnswer(said: string): string | null {
+    const n = noteRef.current;
+    const ppl = peopleRef.current;
+    const text = said.trim();
+    if (!text) return "I didn't hear anything. Try again, or type your answer.";
+    const back = BACK[n.step];
+    if (isBack(text) && back) {
+      go(back);
+      return null;
+    }
+    switch (n.step) {
+      case "owner": {
+        const found = matchPeople(ppl, text);
+        if (found.length === 1) {
+          setNote((m) => ({ ...m, answers: { ...m.answers, ownerId: found[0].id }, step: "title" }));
+          return null;
+        }
+        return found.length > 1
+          ? `More than one person matches "${text}". Tap the one you mean.`
+          : `"${text}" isn't on your people list. Tap someone, or add them as someone new.`;
+      }
+      case "title":
+      case "context":
+      case "action":
+      case "outcome": {
+        const step = n.step;
+        setNote((m) => ({ ...m, answers: { ...m.answers, [step]: text } as Answers, step: QUESTIONS[step].next }));
+        return null;
+      }
+      case "deadline": {
+        const d = parseDeadline(text);
+        answer({ deadlineText: text });
+        setDeadline(d);
+        setPastOk(false);
+        if (d.kind === "ok") {
+          addActionWith(d);
+          return null;
+        }
+        if (d.kind === "past") return `That's in the past: ${formatDeadline(d.at)}. Say another date, or tap Use it anyway.`;
+        if (d.kind === "vague") return "That's a bit vague. When exactly?";
+        return `I couldn't work out a date from "${text}". Try Friday, in 3 days, or 25 November.`;
+      }
+      case "another": {
+        const choice = yesOrNo(text);
+        if (choice === "yes") go("owner");
+        else if (choice === "no") setNote((m) => ({ ...m, ccIndex: 0, step: "cc" }));
+        else return "Say yes for another action, or no if that's everything.";
+        return null;
+      }
+      case "cc": {
+        const ownerId = [...groupByOwner(n.actions).keys()][n.ccIndex];
+        if (isNoOne(text)) {
+          setNote((m) => ({ ...m, cc: { ...m.cc, [ownerId]: [] } }));
+          nextCc();
+          return null;
+        }
+        const others = ppl.filter((p) => p.id !== ownerId);
+        const ids: string[] = [];
+        const unknown: string[] = [];
+        for (const name of splitNames(text)) {
+          const found = matchPeople(others, name);
+          if (found.length === 1) ids.push(found[0].id);
+          else unknown.push(name);
+        }
+        if (unknown.length || !ids.length)
+          return `I didn't recognise ${unknown.map((u) => `"${u}"`).join(" or ") || "that"}. Say their names, or say no one.`;
+        setNote((m) => ({ ...m, cc: { ...m.cc, [ownerId]: [...new Set(ids)] } }));
+        nextCc();
+        return null;
+      }
+      default:
+        return null;
+    }
+  }
+
+  /** "Answer by voice": listens for one answer. Starts inside the tap, as the iPhone requires. */
+  function answerByVoice() {
+    stopSpeaking();
+    sessionRef.current?.stop();
+    setVoiceMessage("");
+    setHeard("");
+    const session = new VoiceSession({
+      keepOpen: false,
+      continuous: !isIPhone(), // the iPhone ends one answer well by itself (test 6, round 7)
+      onListening: setListening,
+      onWords: setHeard,
+      onProblem: setVoiceMessage,
+      onAnswer: (text) => {
+        const problem = applyVoiceAnswer(text);
+        setVoiceMessage(problem ?? "");
+        setHeard(problem ? text : "");
+        if (problem && settings.speakPrompts && armed) void speak(problem);
+      },
+    });
+    sessionRef.current = session;
+    if (session.start()) session.openWindow();
+  }
+
+  /** "Go hands-free": one listening session for the rest of the note, with questions on screen only. */
+  function startHandsFree() {
+    stopSpeaking();
+    sessionRef.current?.stop();
+    setVoiceMessage("");
+    setHeard("");
+    const session = new VoiceSession({
+      keepOpen: true,
+      onListening: setListening,
+      onWords: setHeard,
+      onProblem: setVoiceMessage,
+      onAnswer: (text) => {
+        const problem = applyVoiceAnswer(text);
+        setVoiceMessage(problem ?? "");
+        setHeard(problem ? text : "");
+        if (problem) session.openWindow(); // same question again
+      },
+    });
+    sessionRef.current = session;
+    if (session.start()) {
+      setHandsFree(true);
+      session.openWindow();
+    }
+  }
+
+  function stopHandsFree() {
+    sessionRef.current?.stop();
+    sessionRef.current = null;
+    setHandsFree(false);
+    setListening(false);
+    setHeard("");
+  }
+
+  /** Speak questions on or off. Turning it on reads the current question (the tap lets the iPhone speak). */
+  function toggleSpeak() {
+    const next = { ...settings, speakPrompts: !settings.speakPrompts };
+    setSettings(next);
+    saveSettings(next);
+    if (next.speakPrompts) {
+      stopHandsFree(); // decision 32: spoken questions mean a tap per answer
+      hearQuestion();
+    } else {
+      stopSpeaking();
+    }
+  }
+
+  function hearQuestion() {
+    setArmed(true);
+    lastSpokenRef.current = questionKey;
+    void speak(question);
   }
 
   async function copy(part: string, text: string) {
@@ -477,6 +716,8 @@ export function NoteFlow() {
     }
   }
 
+  const showVoice = voiceOk && note.step !== "drafts";
+  const pill = "rounded-full border-2 border-ink px-3 py-1.5 text-sm font-semibold";
   return (
     <div className="space-y-6">
       <TopBar
@@ -492,8 +733,51 @@ export function NoteFlow() {
           )
         }
       />
+      {showVoice && (
+        <div className="flex flex-wrap gap-2">
+          {speechOk && (
+            <button
+              onClick={toggleSpeak}
+              aria-pressed={settings.speakPrompts}
+              className={`${pill} ${settings.speakPrompts ? "bg-sun" : "bg-white"}`}
+            >
+              🔊 Speak questions: {settings.speakPrompts ? "on" : "off"}
+            </button>
+          )}
+          {settings.speakPrompts && !armed && (
+            <button onClick={hearQuestion} className={`${pill} bg-white`}>
+              Hear this question
+            </button>
+          )}
+          {!settings.speakPrompts &&
+            (handsFree ? (
+              <button onClick={stopHandsFree} className={`${pill} bg-sun`}>
+                🎙 Hands-free on · tap to stop
+              </button>
+            ) : (
+              <button onClick={startHandsFree} className={`${pill} bg-white`}>
+                🎙 Go hands-free
+              </button>
+            ))}
+        </div>
+      )}
       <p className="text-xs font-bold tracking-[0.06em] text-dim uppercase">{progress}</p>
       <div className="space-y-4">{body}</div>
+      {showVoice && (listening || heard || voiceMessage) && (
+        <div
+          aria-live="polite"
+          className={`space-y-1 rounded-xl border-2 border-ink px-3 py-2.5 ${listening ? "bg-sun shadow-pop" : "bg-periwinkle"}`}
+        >
+          {listening && <p className="font-bold">🎙 Listening – speak now</p>}
+          {heard && <p className="font-mono text-sm">&ldquo;{heard}&rdquo;</p>}
+          {voiceMessage && <p className="text-[15px]">{voiceMessage}</p>}
+        </div>
+      )}
+      {showVoice && !handsFree && !listening && (
+        <button onClick={answerByVoice} className="btn-secondary w-full py-3">
+          🎙 Answer by voice
+        </button>
+      )}
     </div>
   );
 }

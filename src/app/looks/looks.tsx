@@ -995,6 +995,13 @@ function LooksBody() {
         }}
       >
         <div className="mx-auto flex max-w-5xl gap-2 overflow-x-auto px-4 py-2.5">
+          <Link
+            href="/"
+            className="flex shrink-0 items-center px-3.5 py-1.5 text-sm font-semibold"
+            style={{ borderRadius: 999, background: "var(--surface)", color: "var(--text)", border: "1px solid var(--hair)" }}
+          >
+            ← Home
+          </Link>
           {LOOKS.map((l, i) => {
             const on = l.id === look.id;
             return (
